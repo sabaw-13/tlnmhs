@@ -24,27 +24,31 @@ const StudentView = ({ section = "overview" }) => {
 
   return (
     <div className="student-view">
-      <div className="stats-grid">
-        <div className="stat-card">
-          <h4>Current GPA</h4>
-          <p>{currentStudent.gpa ?? "N/A"}</p>
+      {section === "overview" && (
+        <div className="stats-grid">
+          <div className="stat-card">
+            <h4>Current GPA</h4>
+            <p>{currentStudent.gpa ?? "N/A"}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Attendance Rate</h4>
+            <p>{currentStudent.attendanceLabel}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Performance</h4>
+            <p>{currentStudent.performanceStatus}</p>
+          </div>
         </div>
-        <div className="stat-card">
-          <h4>Attendance Rate</h4>
-          <p>{currentStudent.attendanceLabel}</p>
-        </div>
-        <div className="stat-card">
-          <h4>Performance</h4>
-          <p>{currentStudent.performanceStatus}</p>
-        </div>
-      </div>
+      )}
 
       {section === "overview" && (
         <>
           <div className="insight-grid">
             <div className="panel">
-              <h3>Live Progress Snapshot</h3>
-              <p className="muted-text">{currentStudent.className}</p>
+              <div className="panel-header">
+                <h3>Live Progress Snapshot</h3>
+                {currentStudent.className && <span className="meta-badge">{currentStudent.className}</span>}
+              </div>
               <div className="report-strip">
                 <div>
                   <span>Q1 Average</span>
@@ -59,7 +63,7 @@ const StudentView = ({ section = "overview" }) => {
                   <strong>{currentStudent.updatedLabel}</strong>
                 </div>
               </div>
-              <p className="mt-4">{currentStudent.teacherRemarks || "No teacher remarks have been published yet."}</p>
+              <p className="mt-4">{currentStudent.teacherRemarks || "No teacher note yet."}</p>
             </div>
 
             <div className="panel">
@@ -77,7 +81,7 @@ const StudentView = ({ section = "overview" }) => {
                   ))}
                 </ul>
               ) : (
-                <p className="empty-copy">Your subject grades will appear here once your teacher updates the repository.</p>
+                <p className="empty-copy">No subjects available yet.</p>
               )}
             </div>
           </div>
@@ -97,7 +101,7 @@ const StudentView = ({ section = "overview" }) => {
                 ))}
               </ul>
             ) : (
-              <p className="empty-copy">No recent academic updates have been posted.</p>
+              <p className="empty-copy">No recent updates.</p>
             )}
           </div>
         </>
@@ -120,12 +124,12 @@ const StudentView = ({ section = "overview" }) => {
             <tbody>
               {currentStudent.subjects.map((subject) => (
                 <tr key={subject.id}>
-                  <td>{subject.name}</td>
-                  <td>{subject.teacher}</td>
-                  <td>{subject.q1 ?? "N/A"}</td>
-                  <td>{subject.q2 ?? "N/A"}</td>
-                  <td>{subject.finalGrade ?? "N/A"}</td>
-                  <td><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
+                  <td data-label="Subject">{subject.name}</td>
+                  <td data-label="Teacher">{subject.teacher}</td>
+                  <td data-label="Quarter 1">{subject.q1 ?? "N/A"}</td>
+                  <td data-label="Quarter 2">{subject.q2 ?? "N/A"}</td>
+                  <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
+                  <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
               {currentStudent.subjects.length === 0 && (
@@ -145,13 +149,11 @@ const StudentView = ({ section = "overview" }) => {
             <div className="progress-track large">
               <div className="progress-fill" style={{ width: `${currentStudent.attendanceRate || 0}%` }} />
             </div>
-            <p className="mt-4">
-              You have an attendance rate of <strong>{currentStudent.attendanceLabel}</strong>. Maintain consistent attendance to stay on track academically.
-            </p>
+            <p className="mt-4">Current attendance: <strong>{currentStudent.attendanceLabel}</strong></p>
           </div>
 
           <div className="panel">
-            <h3>Advisories</h3>
+            <h3>Alerts</h3>
             {currentStudent.alerts.length ? (
               <ul className="stack-list">
                 {currentStudent.alerts.map((alert) => (
@@ -161,7 +163,7 @@ const StudentView = ({ section = "overview" }) => {
                 ))}
               </ul>
             ) : (
-              <p className="empty-copy">No attendance or performance advisories at this time.</p>
+              <p className="empty-copy">No active alerts.</p>
             )}
           </div>
         </div>

@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { SchoolDataProvider } from "./context/SchoolDataContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import "./index.css";
@@ -21,24 +22,26 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
 function App() {
   return (
-    <AuthProvider>
-      <SchoolDataProvider>
-        <Router>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route 
-              path="/dashboard/*" 
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route path="/" element={<Navigate to="/dashboard" />} />
-          </Routes>
-        </Router>
-      </SchoolDataProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <SchoolDataProvider>
+          <Router>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route 
+                path="/dashboard/*" 
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route path="/" element={<Navigate to="/dashboard" />} />
+            </Routes>
+          </Router>
+        </SchoolDataProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

@@ -1,5 +1,4 @@
 import React from "react";
-import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
 import "./TeacherDashboard.css";
 
@@ -7,7 +6,6 @@ const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
 
 const ParentView = ({ section = "overview" }) => {
   const { linkedStudent, loading, error } = useSchoolData();
-  const { userData } = useAuth();
 
   if (loading) return <div className="loading-container">Loading child records...</div>;
   if (error) return <div className="error-container">{error}</div>;
@@ -23,31 +21,33 @@ const ParentView = ({ section = "overview" }) => {
   return (
     <div className="parent-view">
       <div className="panel hero-panel">
-        <h3>Child: <span className="text-primary">{linkedStudent.name}</span></h3>
-        <p className="text-secondary">{linkedStudent.className}</p>
-        <p className="muted-text">Parent access for {userData?.displayName || userData?.email}</p>
+        <div className="panel-header">
+          <h3>Child: <span className="text-primary">{linkedStudent.name}</span></h3>
+          {linkedStudent.className && <span className="meta-badge">{linkedStudent.className}</span>}
+        </div>
       </div>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <h4>Academic Average</h4>
-          <p>{linkedStudent.gpa ?? "N/A"}</p>
+      {section === "overview" && (
+        <div className="stats-grid">
+          <div className="stat-card">
+            <h4>Academic Average</h4>
+            <p>{linkedStudent.gpa ?? "N/A"}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Attendance</h4>
+            <p>{linkedStudent.attendanceLabel}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Performance</h4>
+            <p>{linkedStudent.performanceStatus}</p>
+          </div>
         </div>
-        <div className="stat-card">
-          <h4>Attendance</h4>
-          <p>{linkedStudent.attendanceLabel}</p>
-        </div>
-        <div className="stat-card">
-          <h4>Performance</h4>
-          <p>{linkedStudent.performanceStatus}</p>
-        </div>
-      </div>
+      )}
 
       {section === "overview" && (
         <div className="insight-grid">
           <div className="panel">
             <h3>Parent Summary</h3>
-            <p className="muted-text">Review the latest academic standing and teacher remarks.</p>
             <div className="report-strip">
               <div>
                 <span>Q1 Average</span>
@@ -62,7 +62,7 @@ const ParentView = ({ section = "overview" }) => {
                 <strong>{linkedStudent.updatedLabel}</strong>
               </div>
             </div>
-            <p className="mt-4">{linkedStudent.teacherRemarks || "No remarks have been published yet."}</p>
+            <p className="mt-4">{linkedStudent.teacherRemarks || "No teacher note yet."}</p>
           </div>
 
           <div className="panel">
@@ -76,7 +76,7 @@ const ParentView = ({ section = "overview" }) => {
                 ))}
               </ul>
             ) : (
-              <p className="empty-copy">No intervention alerts. Your child is currently on track.</p>
+              <p className="empty-copy">No active alerts.</p>
             )}
           </div>
         </div>
@@ -99,12 +99,12 @@ const ParentView = ({ section = "overview" }) => {
             <tbody>
               {linkedStudent.subjects.map((subject) => (
                 <tr key={subject.id}>
-                  <td>{subject.name}</td>
-                  <td>{subject.teacher}</td>
-                  <td>{subject.q1 ?? "N/A"}</td>
-                  <td>{subject.q2 ?? "N/A"}</td>
-                  <td>{subject.finalGrade ?? "N/A"}</td>
-                  <td><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
+                  <td data-label="Subject">{subject.name}</td>
+                  <td data-label="Teacher">{subject.teacher}</td>
+                  <td data-label="Q1">{subject.q1 ?? "N/A"}</td>
+                  <td data-label="Q2">{subject.q2 ?? "N/A"}</td>
+                  <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
+                  <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
               {linkedStudent.subjects.length === 0 && (
@@ -119,7 +119,7 @@ const ParentView = ({ section = "overview" }) => {
 
       {section === "updates" && (
         <div className="panel">
-          <h3>Recent Performance Notifications</h3>
+          <h3>Recent Updates</h3>
           {linkedStudent.recentActivity.length ? (
             <ul className="stack-list">
               {linkedStudent.recentActivity.map((activity, index) => (
@@ -133,7 +133,7 @@ const ParentView = ({ section = "overview" }) => {
               ))}
             </ul>
           ) : (
-            <p className="empty-copy">No recent notifications yet.</p>
+            <p className="empty-copy">No recent updates.</p>
           )}
         </div>
       )}

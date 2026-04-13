@@ -13,6 +13,111 @@
   --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.12);
   --radius: 12px;
   --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --bg-gradient:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 24rem),
+    linear-gradient(180deg, #eff6ff 0%, #f8fafc 34%);
+  --sidebar-gradient: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+  --sidebar-text: #cbd5e1;
+  --sidebar-muted: #94a3b8;
+  --sidebar-hover: rgba(148, 163, 184, 0.15);
+  --sidebar-border: rgba(148, 163, 184, 0.15);
+  --surface-elevated: rgba(255, 255, 255, 0.98);
+  --surface-card-start: rgba(255, 255, 255, 1);
+  --surface-card-end: rgba(248, 250, 252, 1);
+  --surface-panel-start: rgba(255, 255, 255, 0.99);
+  --surface-panel-end: rgba(248, 250, 252, 0.96);
+  --surface-subtle: #f8fafc;
+  --surface-subtle-strong: #eff6ff;
+  --surface-subtle-border: #e5eefc;
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(226, 232, 240, 0.9);
+  --settings-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.96) 100%);
+  --settings-panel-border: rgba(191, 219, 254, 0.95);
+  --settings-chip-bg: rgba(255, 255, 255, 0.88);
+  --settings-chip-border: rgba(191, 219, 254, 0.9);
+  --meta-badge-bg: #dbeafe;
+  --meta-badge-color: #1d4ed8;
+  --meta-badge-border: #bfdbfe;
+  --table-head-bg: #eff6ff;
+  --table-head-text: #334155;
+  --success-bg: #f0fdf4;
+  --success-border: #bbf7d0;
+  --success-text: #166534;
+  --error-bg: #fef2f2;
+  --error-border: #fecaca;
+  --error-soft-text: #b91c1c;
+  --warning-bg: #fef3c7;
+  --warning-text: #92400e;
+  --positive-bg: #d1fae5;
+  --positive-text: #065f46;
+  --info-bg: #dbeafe;
+  --info-text: #1d4ed8;
+  --overlay: rgba(15, 23, 42, 0.48);
+  --input-bg: #f8fafc;
+  --hero-gradient:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 12rem),
+    linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+  --focus-ring: rgba(37, 99, 235, 0.1);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --primary: #60a5fa;
+  --primary-hover: #3b82f6;
+  --primary-light: rgba(96, 165, 250, 0.24);
+  --bg-color: #020817;
+  --card-bg: #0f172a;
+  --text-main: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --border: #243244;
+  --shadow: 0 10px 20px -10px rgb(2 6 23 / 0.8), 0 8px 16px -12px rgb(15 23 42 / 0.7);
+  --shadow-lg: 0 24px 48px -20px rgb(2 6 23 / 0.85), 0 16px 28px -20px rgb(15 23 42 / 0.75);
+  --bg-gradient:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 24rem),
+    linear-gradient(180deg, #020817 0%, #0f172a 34%);
+  --sidebar-gradient: linear-gradient(180deg, #020617 0%, #111827 100%);
+  --sidebar-text: #cbd5e1;
+  --sidebar-muted: #94a3b8;
+  --sidebar-hover: rgba(148, 163, 184, 0.1);
+  --sidebar-border: rgba(51, 65, 85, 0.7);
+  --surface-elevated: rgba(15, 23, 42, 0.96);
+  --surface-card-start: rgba(15, 23, 42, 0.98);
+  --surface-card-end: rgba(17, 24, 39, 0.96);
+  --surface-panel-start: rgba(15, 23, 42, 0.98);
+  --surface-panel-end: rgba(10, 15, 27, 0.96);
+  --surface-subtle: #0b1220;
+  --surface-subtle-strong: #132033;
+  --surface-subtle-border: #233858;
+  --glass-bg: rgba(2, 6, 23, 0.78);
+  --glass-border: rgba(51, 65, 85, 0.85);
+  --settings-panel-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(17, 24, 39, 0.98) 100%);
+  --settings-panel-border: rgba(51, 65, 85, 0.95);
+  --settings-chip-bg: rgba(15, 23, 42, 0.86);
+  --settings-chip-border: rgba(59, 130, 246, 0.28);
+  --meta-badge-bg: #13294b;
+  --meta-badge-color: #93c5fd;
+  --meta-badge-border: #1d4ed8;
+  --table-head-bg: #132033;
+  --table-head-text: #cbd5e1;
+  --success-bg: #052e16;
+  --success-border: #166534;
+  --success-text: #86efac;
+  --error-bg: #3b0b0b;
+  --error-border: #7f1d1d;
+  --error-soft-text: #fca5a5;
+  --warning-bg: #3f2b0d;
+  --warning-text: #fbbf24;
+  --positive-bg: #083d2e;
+  --positive-text: #6ee7b7;
+  --info-bg: #13294b;
+  --info-text: #93c5fd;
+  --overlay: rgba(2, 6, 23, 0.72);
+  --input-bg: #0b1220;
+  --hero-gradient:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 12rem),
+    linear-gradient(135deg, #0f172a 0%, #111827 100%);
+  --focus-ring: rgba(96, 165, 250, 0.18);
+  color-scheme: dark;
 }
 
 * {
@@ -21,11 +126,19 @@
   padding: 0;
 }
 
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
 body {
   font-family: var(--font);
   background-color: var(--bg-color);
   color: var(--text-main);
   line-height: 1.5;
+  min-height: 100dvh;
+  overflow-x: hidden;
 }
 
 input, button, select, textarea {
@@ -33,27 +146,28 @@ input, button, select, textarea {
 }
 
 .app-status-screen {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  background: var(--bg-gradient);
 }
 
 .app-status-card {
   width: min(100%, 420px);
   padding: 2rem;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
   text-align: center;
 }
 
 .app-status-card h1 {
   font-size: 1.5rem;
   margin-bottom: 0.5rem;
-  color: #1e3a8a;
+  color: var(--primary);
 }
 
 .app-status-card p {
@@ -65,6 +179,7 @@ input, button, select, textarea {
   font-size: 0.875rem;
   margin-bottom: 1rem;
   padding: 0.5rem;
-  background: #fef2f2;
-  border-radius: 4px;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: 10px;
 }

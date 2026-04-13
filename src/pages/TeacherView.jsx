@@ -1,45 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
-import { clamp, computePerformanceStatus, formatShortDate, toNumber } from "../utils/reporting";
+import { formatShortDate } from "../utils/reporting";
+import StudentRecordModal from "../components/StudentRecordModal";
 import "./TeacherDashboard.css";
-
-const createEmptySubject = () => ({
-  id: "",
-  name: "",
-  teacher: "",
-  q1: "",
-  q2: "",
-  q3: "",
-  q4: ""
-});
-
-const toActivitiesArray = (activities) => {
-  if (Array.isArray(activities)) return activities;
-  if (activities && typeof activities === "object") return Object.values(activities);
-  return [];
-};
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
 
 const TeacherView = ({ section = "overview" }) => {
-  const { userData } = useAuth();
+  const { userData, currentUser } = useAuth();
   const {
     error,
     loading,
     savingStudentId,
     teacherClassReports,
-    updateStudentRecord
+    saveStudentRecord
   } = useSchoolData();
   const [selectedClassId, setSelectedClassId] = useState("");
-  const [editingStudent, setEditingStudent] = useState(null);
-  const [editFormData, setEditFormData] = useState({
-    gpa: "",
-    attendance: "",
-    performanceStatus: "On Track",
-    teacherRemarks: "",
-    subjects: [createEmptySubject()]
-  });
+  const [managingStudent, setManagingStudent] = useState(null);
   const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
@@ -70,133 +48,54 @@ const TeacherView = ({ section = "overview" }) => {
     { label: "Needs Support", count: students.filter((student) => !Number.isFinite(student.gpa) || student.gpa < 80).length }
   ];
   const sectionMeta = {
-    overview: {
-      title: "Teaching Overview",
-      description: "Track class performance, identify at-risk learners, and monitor the live repository."
-    },
-    gradebook: {
-      title: "Gradebook and Attendance",
-      description: "Input, revise, and publish student grades, attendance, and performance remarks."
-    },
-    reports: {
-      title: "Realtime Reports",
-      description: "Review classroom trends, update history, and intervention priorities."
-    }
+    overview: "Teaching Overview",
+    gradebook: "Gradebook",
+    reports: "Reports"
   };
+  const classTeacherName = selectedClass?.teacherName
+    || selectedClass?.adviserName
+    || userData?.displayName
+    || userData?.email
+    || currentUser?.email
+    || "Assigned Teacher";
 
-  const handleEditProgress = (student) => {
-    const subjects = student.subjects.length
-      ? student.subjects.map((subject) => ({
-        id: subject.id,
-        name: subject.name,
-        teacher: subject.teacher,
-        q1: subject.q1 ?? "",
-        q2: subject.q2 ?? "",
-        q3: subject.q3 ?? "",
-        q4: subject.q4 ?? ""
-      }))
-      : [createEmptySubject()];
-
-    setEditingStudent(student);
-    setEditFormData({
-      gpa: student.gpa ?? "",
-      attendance: student.attendanceRate ?? "",
-      performanceStatus: student.performanceStatus || "On Track",
-      teacherRemarks: student.teacherRemarks || "",
-      subjects
-    });
+  const openStudentModal = (student = null) => {
+    setManagingStudent(student || {});
     setSaveMessage("");
   };
 
-  const handleSaveProgress = async (event) => {
-    event.preventDefault();
-    if (!editingStudent) return;
+  const handleSaveStudent = async (formData) => {
+    const now = new Date().toISOString();
+    const summaryParts = [];
 
-    try {
-      const normalizedSubjects = editFormData.subjects
-        .filter((subject) => subject.name.trim())
-        .map((subject, index) => {
-          const quarterGrades = [
-            toNumber(subject.q1),
-            toNumber(subject.q2),
-            toNumber(subject.q3),
-            toNumber(subject.q4)
-          ].filter((grade) => Number.isFinite(grade));
-          const computedAverage = quarterGrades.length
-            ? Number((quarterGrades.reduce((sum, grade) => sum + grade, 0) / quarterGrades.length).toFixed(1))
-            : null;
+    if (formData.gpa !== "") summaryParts.push(`GPA ${formData.gpa}`);
+    if (formData.attendance !== "") summaryParts.push(`Attendance ${formData.attendance}%`);
 
-          return {
-            id: subject.id || `subject-${index + 1}`,
-            name: subject.name.trim(),
-            teacher: subject.teacher || userData?.displayName || userData?.email || "Assigned Teacher",
-            q1: toNumber(subject.q1),
-            q2: toNumber(subject.q2),
-            q3: toNumber(subject.q3),
-            q4: toNumber(subject.q4),
-            finalGrade: computedAverage,
-            status: computedAverage !== null && computedAverage >= 75 ? "Passed" : "Needs Attention"
-          };
-        });
+    const activityEntry = {
+      date: formatShortDate(now),
+      activity: managingStudent?.id ? "Teacher Update" : "Student Added",
+      result: summaryParts.length ? summaryParts.join(" | ") : "Student record updated",
+      remarks: formData.teacherRemarks || formData.performanceStatus
+    };
 
-      const attendanceRate = clamp(toNumber(editFormData.attendance) ?? 0, 0, 100);
-      const computedGpa = toNumber(editFormData.gpa)
-        ?? (normalizedSubjects.length
-          ? Number((normalizedSubjects.reduce((sum, subject) => sum + (subject.finalGrade || 0), 0) / normalizedSubjects.length).toFixed(1))
-          : null);
-      const performanceStatus = editFormData.performanceStatus || computePerformanceStatus({
-        gpa: computedGpa,
-        attendanceRate,
-        subjects: normalizedSubjects
-      });
-      const now = new Date().toISOString();
-      const activityEntry = {
-        date: formatShortDate(now),
-        activity: "Teacher Update",
-        result: `GPA ${computedGpa ?? "N/A"} | Attendance ${attendanceRate}%`,
-        remarks: editFormData.teacherRemarks || performanceStatus
-      };
+    await saveStudentRecord({
+      studentId: managingStudent?.id,
+      payload: {
+        ...formData,
+        classId: selectedClass?.id,
+        teacherId: selectedClass?.teacherId || selectedClass?.teacherUid || "",
+        teacherEmail: selectedClass?.teacherEmail || selectedClass?.adviserEmail || "",
+        teacherName: classTeacherName,
+        activities: managingStudent?.id
+          ? [activityEntry, ...(Array.isArray(managingStudent?.raw?.activities)
+            ? managingStudent.raw.activities
+            : Object.values(managingStudent?.raw?.activities || {}))].slice(0, 6)
+          : [activityEntry]
+      }
+    });
 
-      await updateStudentRecord(editingStudent.id, {
-        gpa: computedGpa,
-        attendance: `${attendanceRate}%`,
-        attendanceRate,
-        performanceStatus,
-        teacherRemarks: editFormData.teacherRemarks.trim(),
-        subjects: normalizedSubjects,
-        activities: [activityEntry, ...toActivitiesArray(editingStudent.raw?.activities)].slice(0, 6),
-        lastAttendance: formatShortDate(now)
-      });
-
-      setEditingStudent(null);
-      setSaveMessage("Student progress saved to the centralized repository.");
-    } catch (updateError) {
-      console.error("Error updating progress:", updateError);
-      setSaveMessage("Failed to update student progress. Check Firebase write permissions.");
-    }
-  };
-
-  const updateSubjectField = (index, field, value) => {
-    setEditFormData((previous) => ({
-      ...previous,
-      subjects: previous.subjects.map((subject, subjectIndex) => (
-        subjectIndex === index ? { ...subject, [field]: value } : subject
-      ))
-    }));
-  };
-
-  const addSubjectRow = () => {
-    setEditFormData((previous) => ({
-      ...previous,
-      subjects: [...previous.subjects, createEmptySubject()]
-    }));
-  };
-
-  const removeSubjectRow = (index) => {
-    setEditFormData((previous) => ({
-      ...previous,
-      subjects: previous.subjects.filter((_, subjectIndex) => subjectIndex !== index)
-    }));
+    setManagingStudent(null);
+    setSaveMessage(managingStudent?.id ? "Student record updated." : "Student added to this class.");
   };
 
   if (loading) return <div className="loading-container">Loading dashboard...</div>;
@@ -212,19 +111,25 @@ const TeacherView = ({ section = "overview" }) => {
   const renderClassSelector = () => (
     <div className="toolbar">
       <div>
-        <h3>{sectionMeta[section].title}</h3>
-        <p>{sectionMeta[section].description}</p>
+        <h3>{sectionMeta[section]}</h3>
       </div>
-      <label className="selector-field">
-        <span>Selected Class</span>
-        <select value={selectedClass?.id || ""} onChange={(event) => setSelectedClassId(event.target.value)}>
-          {teacherClassReports.map((classroom) => (
-            <option key={classroom.id} value={classroom.id}>
-              {classroom.name || classroom.section || classroom.id}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="toolbar-actions">
+        <label className="selector-field">
+          <span>Class</span>
+          <select value={selectedClass?.id || ""} onChange={(event) => setSelectedClassId(event.target.value)}>
+            {teacherClassReports.map((classroom) => (
+              <option key={classroom.id} value={classroom.id}>
+                {classroom.name || classroom.section || classroom.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        {section === "gradebook" && (
+          <button type="button" className="primary-btn" onClick={() => openStudentModal()}>
+            Add Student
+          </button>
+        )}
+      </div>
     </div>
   );
 
@@ -233,24 +138,26 @@ const TeacherView = ({ section = "overview" }) => {
       {error && <div className="error-container">{error}</div>}
       {saveMessage && <div className="success-banner">{saveMessage}</div>}
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <h4>Assigned Classes</h4>
-          <p>{teacherClassReports.length}</p>
+      {section === "overview" && (
+        <div className="stats-grid">
+          <div className="stat-card">
+            <h4>Assigned Classes</h4>
+            <p>{teacherClassReports.length}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Class Average</h4>
+            <p>{selectedClass?.averageGpa ?? "N/A"}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Attendance Average</h4>
+            <p>{selectedClass?.averageAttendance ? `${selectedClass.averageAttendance}%` : "N/A"}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Students in Class</h4>
+            <p>{students.length}</p>
+          </div>
         </div>
-        <div className="stat-card">
-          <h4>Class Average</h4>
-          <p>{selectedClass?.averageGpa ?? "N/A"}</p>
-        </div>
-        <div className="stat-card">
-          <h4>Attendance Average</h4>
-          <p>{selectedClass?.averageAttendance ? `${selectedClass.averageAttendance}%` : "N/A"}</p>
-        </div>
-        <div className="stat-card">
-          <h4>Students Needing Support</h4>
-          <p>{studentsNeedingSupport.length}</p>
-        </div>
-      </div>
+      )}
 
       {renderClassSelector()}
 
@@ -258,8 +165,15 @@ const TeacherView = ({ section = "overview" }) => {
         <>
           <div className="insight-grid">
             <div className="panel">
-              <h3>{selectedClass?.name || selectedClass?.section || "Selected Class"}</h3>
-              <p className="muted-text">{selectedClass?.subject || selectedClass?.gradeLevel || "Live class overview"}</p>
+              <div className="panel-header">
+                <h3>{selectedClass?.name || selectedClass?.section || "Selected Class"}</h3>
+                <div className="inline-actions">
+                  {(selectedClass?.subject || selectedClass?.gradeLevel) && (
+                    <span className="meta-badge">{selectedClass?.subject || selectedClass?.gradeLevel}</span>
+                  )}
+                  <span className="meta-badge">{classTeacherName}</span>
+                </div>
+              </div>
               <div className="report-strip">
                 <div>
                   <span>Students</span>
@@ -276,13 +190,13 @@ const TeacherView = ({ section = "overview" }) => {
               </div>
               <p className="mt-4">
                 {topPerformer
-                  ? `${topPerformer.name} is currently leading this class with a ${topPerformer.gpa} average.`
-                  : "Add or update learner records to generate classroom insights."}
+                  ? `${topPerformer.name} is leading this class with a ${topPerformer.gpa} average.`
+                  : "Add students to start building this class roster."}
               </p>
             </div>
 
             <div className="panel">
-              <h3>Students Needing Intervention</h3>
+              <h3>Support Watchlist</h3>
               {studentsNeedingSupport.length ? (
                 <ul className="stack-list">
                   {studentsNeedingSupport.slice(0, 4).map((student) => (
@@ -291,23 +205,20 @@ const TeacherView = ({ section = "overview" }) => {
                         <strong>{student.name}</strong>
                         <p>{student.alerts[0] || "Monitor learner progress."}</p>
                       </div>
-                      <button type="button" className="secondary-btn" onClick={() => handleEditProgress(student)}>
-                        Update
+                      <button type="button" className="secondary-btn" onClick={() => openStudentModal(student)}>
+                        Edit
                       </button>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="empty-copy">No active intervention alerts for this class.</p>
+                <p className="empty-copy">No current alerts.</p>
               )}
             </div>
           </div>
 
           <div className="panel">
-            <div className="panel-header">
-              <h3>Live Student Snapshot</h3>
-              <span className="status-pill info">Realtime</span>
-            </div>
+            <h3>Class Roster</h3>
             <table className="data-table">
               <thead>
                 <tr>
@@ -315,19 +226,28 @@ const TeacherView = ({ section = "overview" }) => {
                   <th>Average</th>
                   <th>Attendance</th>
                   <th>Status</th>
-                  <th>Updated</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {students.map((student) => (
                   <tr key={student.id}>
-                    <td>{student.name}</td>
-                    <td>{student.gpa ?? "N/A"}</td>
-                    <td>{student.attendanceLabel}</td>
-                    <td><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
-                    <td>{student.updatedLabel}</td>
+                    <td data-label="Name">{student.name}</td>
+                    <td data-label="Average">{student.gpa ?? "N/A"}</td>
+                    <td data-label="Attendance">{student.attendanceLabel}</td>
+                    <td data-label="Status"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
+                    <td data-label="Action">
+                      <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))}
+                {students.length === 0 && (
+                  <tr>
+                    <td colSpan="5">No students found for this class.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -337,8 +257,7 @@ const TeacherView = ({ section = "overview" }) => {
       {section === "gradebook" && (
         <div className="panel">
           <div className="panel-header">
-            <h3>Centralized Gradebook</h3>
-            <span className="muted-text">Input grades, attendance, and teacher remarks in one place.</span>
+            <h3>Class Gradebook</h3>
           </div>
           <table className="data-table">
             <thead>
@@ -355,15 +274,15 @@ const TeacherView = ({ section = "overview" }) => {
             <tbody>
               {students.map((student) => (
                 <tr key={student.id}>
-                  <td>{student.name}</td>
-                  <td>{student.q1Average ?? "N/A"}</td>
-                  <td>{student.q2Average ?? "N/A"}</td>
-                  <td>{student.attendanceLabel}</td>
-                  <td><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
-                  <td>{student.teacherRemarks || "No remarks yet"}</td>
-                  <td>
-                    <button className="secondary-btn" type="button" onClick={() => handleEditProgress(student)}>
-                      {savingStudentId === student.id ? "Saving..." : "Edit Record"}
+                  <td data-label="Name">{student.name}</td>
+                  <td data-label="Q1 Avg">{student.q1Average ?? "N/A"}</td>
+                  <td data-label="Q2 Avg">{student.q2Average ?? "N/A"}</td>
+                  <td data-label="Attendance">{student.attendanceLabel}</td>
+                  <td data-label="Performance"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
+                  <td data-label="Remarks">{student.teacherRemarks || "None"}</td>
+                  <td data-label="Action">
+                    <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
+                      {savingStudentId === student.id ? "Saving..." : "Edit"}
                     </button>
                   </td>
                 </tr>
@@ -417,7 +336,7 @@ const TeacherView = ({ section = "overview" }) => {
                   ))}
                 </ul>
               ) : (
-                <p className="empty-copy">No recent updates yet for this class.</p>
+                <p className="empty-copy">No recent updates.</p>
               )}
             </div>
           </div>
@@ -437,11 +356,11 @@ const TeacherView = ({ section = "overview" }) => {
               <tbody>
                 {students.map((student) => (
                   <tr key={student.id}>
-                    <td>{student.name}</td>
-                    <td>{student.gpa ?? "N/A"}</td>
-                    <td>{student.attendanceLabel}</td>
-                    <td><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
-                    <td>{student.alerts.join(" ") || "None"}</td>
+                    <td data-label="Student">{student.name}</td>
+                    <td data-label="Overall Average">{student.gpa ?? "N/A"}</td>
+                    <td data-label="Attendance">{student.attendanceLabel}</td>
+                    <td data-label="Status"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
+                    <td data-label="Alerts">{student.alerts.join(" ") || "None"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -450,113 +369,18 @@ const TeacherView = ({ section = "overview" }) => {
         </>
       )}
 
-      {editingStudent && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <h3>Edit Progress: {editingStudent.name}</h3>
-            <form onSubmit={handleSaveProgress}>
-              <div className="form-group">
-                <label>Overall Average</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={editFormData.gpa}
-                  onChange={(event) => setEditFormData({ ...editFormData, gpa: event.target.value })}
-                />
-              </div>
-              <div className="form-group">
-                <label>Attendance (%)</label>
-                <input
-                  type="number"
-                  value={editFormData.attendance}
-                  onChange={(event) => setEditFormData({ ...editFormData, attendance: event.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Performance Status</label>
-                <select
-                  value={editFormData.performanceStatus}
-                  onChange={(event) => setEditFormData({ ...editFormData, performanceStatus: event.target.value })}
-                >
-                  <option value="Excellent">Excellent</option>
-                  <option value="On Track">On Track</option>
-                  <option value="Needs Support">Needs Support</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Teacher Remarks</label>
-                <textarea
-                  value={editFormData.teacherRemarks}
-                  onChange={(event) => setEditFormData({ ...editFormData, teacherRemarks: event.target.value })}
-                  rows="3"
-                  placeholder="Add a performance note or intervention recommendation."
-                />
-              </div>
-
-              <div className="subject-editor">
-                <div className="panel-header">
-                  <h4>Subject Grades</h4>
-                  <button type="button" className="secondary-btn" onClick={addSubjectRow}>Add Subject</button>
-                </div>
-                {editFormData.subjects.map((subject, index) => (
-                  <div key={`${subject.id || "subject"}-${index}`} className="subject-grid">
-                    <input
-                      type="text"
-                      value={subject.name}
-                      placeholder="Subject name"
-                      onChange={(event) => updateSubjectField(index, "name", event.target.value)}
-                    />
-                    <input
-                      type="text"
-                      value={subject.teacher}
-                      placeholder="Teacher"
-                      onChange={(event) => updateSubjectField(index, "teacher", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q1}
-                      placeholder="Q1"
-                      onChange={(event) => updateSubjectField(index, "q1", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q2}
-                      placeholder="Q2"
-                      onChange={(event) => updateSubjectField(index, "q2", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q3}
-                      placeholder="Q3"
-                      onChange={(event) => updateSubjectField(index, "q3", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q4}
-                      placeholder="Q4"
-                      onChange={(event) => updateSubjectField(index, "q4", event.target.value)}
-                    />
-                    {editFormData.subjects.length > 1 && (
-                      <button type="button" className="text-btn" onClick={() => removeSubjectRow(index)}>
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="modal-actions">
-                <button type="submit" className="primary-btn">
-                  {savingStudentId === editingStudent.id ? "Saving..." : "Save Changes"}
-                </button>
-                <button type="button" className="secondary-btn" onClick={() => setEditingStudent(null)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {managingStudent && (
+        <StudentRecordModal
+          title={managingStudent.id ? `Edit Student: ${managingStudent.name}` : "Add Student"}
+          student={managingStudent.id ? managingStudent : null}
+          defaultClassId={selectedClass?.id || ""}
+          defaultTeacherId={selectedClass?.teacherId || selectedClass?.teacherUid || ""}
+          defaultTeacherName={classTeacherName}
+          saving={Boolean(savingStudentId)}
+          submitLabel={managingStudent.id ? "Save Changes" : "Add Student"}
+          onClose={() => setManagingStudent(null)}
+          onSubmit={handleSaveStudent}
+        />
       )}
     </div>
   );

@@ -1,5 +1,5 @@
-import React from "react";
-import { Routes, Route, NavLink, Navigate, useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
 import {
@@ -11,19 +11,35 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  Menu,
   Settings
 } from "lucide-react";
 import AdminView from "./AdminView";
 import TeacherView from "./TeacherView";
 import StudentView from "./StudentView";
 import ParentView from "./ParentView";
+import SettingsView from "./SettingsView";
 import "./Dashboard.css";
 
 const Dashboard = () => {
   const { userData, logout } = useAuth();
-  const { repositorySummary, error: repositoryError } = useSchoolData();
+  const location = useLocation();
   const navigate = useNavigate();
   const role = userData?.role;
+  const roleLabel = role ? `${role.charAt(0).toUpperCase() + role.slice(1)} Portal` : "Portal";
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    document.body.style.overflow = isSidebarOpen ? "hidden" : "";
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isSidebarOpen]);
 
   const handleLogout = async () => {
     await logout();
@@ -34,12 +50,14 @@ const Dashboard = () => {
     const common = [
       { path: "/dashboard", label: "Overview", icon: <LayoutDashboard size={20} /> }
     ];
+    const settingsItem = { path: "/dashboard/settings", label: "Settings", icon: <Settings size={20} /> };
 
     if (role === "admin") {
       return [
         ...common,
         { path: "/dashboard/repository", label: "Repository", icon: <Database size={20} /> },
-        { path: "/dashboard/reports", label: "Reports", icon: <BarChart3 size={20} /> }
+        { path: "/dashboard/reports", label: "Reports", icon: <BarChart3 size={20} /> },
+        settingsItem
       ];
     }
 
@@ -47,7 +65,8 @@ const Dashboard = () => {
       return [
         ...common,
         { path: "/dashboard/gradebook", label: "Gradebook", icon: <BookOpen size={20} /> },
-        { path: "/dashboard/reports", label: "Reports", icon: <ClipboardCheck size={20} /> }
+        { path: "/dashboard/reports", label: "Reports", icon: <ClipboardCheck size={20} /> },
+        settingsItem
       ];
     }
 
@@ -55,7 +74,8 @@ const Dashboard = () => {
       return [
         ...common,
         { path: "/dashboard/grades", label: "My Grades", icon: <GraduationCap size={20} /> },
-        { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={20} /> }
+        { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={20} /> },
+        settingsItem
       ];
     }
 
@@ -63,11 +83,12 @@ const Dashboard = () => {
       return [
         ...common,
         { path: "/dashboard/child-report", label: "Child Report", icon: <BookOpen size={20} /> },
-        { path: "/dashboard/updates", label: "Updates", icon: <BellRing size={20} /> }
+        { path: "/dashboard/updates", label: "Updates", icon: <BellRing size={20} /> },
+        settingsItem
       ];
     }
 
-    return common;
+    return [...common, settingsItem];
   };
 
   const renderRoleRoutes = () => {
@@ -121,10 +142,27 @@ const Dashboard = () => {
 
   return (
     <div className="dashboard-container">
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <h2>TLNMHS</h2>
-          <span>{role && role.charAt(0).toUpperCase() + role.slice(1)} Portal</span>
+      <button
+        className={`sidebar-backdrop${isSidebarOpen ? " visible" : ""}`}
+        type="button"
+        aria-label="Close navigation menu"
+        onClick={() => setIsSidebarOpen(false)}
+      />
+
+      <aside className={`sidebar${isSidebarOpen ? " open" : ""}`}>
+        <div className="sidebar-topbar">
+          <div className="sidebar-header">
+            <h2>TLNMHS</h2>
+            <span>{roleLabel}</span>
+          </div>
+          <button
+            className="sidebar-close-btn"
+            type="button"
+            aria-label="Close navigation menu"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <span aria-hidden="true">X</span>
+          </button>
         </div>
         <nav className="sidebar-nav">
           {getSidebarItems().map((item) => (
@@ -147,24 +185,26 @@ const Dashboard = () => {
 
       <main className="content">
         <header className="content-header">
-          <div>
-            <h1>Welcome, {userData?.displayName || userData?.email}</h1>
-            <p className="header-subtitle">
-              {repositoryError
-                ? repositoryError
-                : `Live repository connected${repositorySummary?.classes ? ` | ${repositorySummary.classes} classes tracked` : ""}`}
-            </p>
-          </div>
-          <div className="header-actions">
-            <button className="icon-btn" type="button" aria-label="Repository status">
-              <Settings size={20} />
+          <div className="header-leading">
+            <button
+              className="mobile-nav-btn"
+              type="button"
+              aria-label="Open navigation menu"
+              onClick={() => setIsSidebarOpen(true)}
+            >
+              <Menu size={20} />
             </button>
+            <div className="header-copy">
+              <span className="header-kicker">{roleLabel}</span>
+              <h1>{userData?.displayName || userData?.email}</h1>
+            </div>
           </div>
         </header>
 
         <section className="view-content">
           <Routes>
             {renderRoleRoutes()}
+            <Route path="settings" element={<SettingsView />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </section>
