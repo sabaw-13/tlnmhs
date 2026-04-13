@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import ConfirmDialog from "./ConfirmDialog";
 
 export const createEmptySubject = () => ({
   id: "",
@@ -40,6 +41,31 @@ const buildInitialFormState = ({
     : [createEmptySubject()]
 });
 
+const normalizeStudentFormState = (formState) => ({
+  name: formState.name.trim(),
+  email: formState.email.trim(),
+  parentName: formState.parentName.trim(),
+  parentId: formState.parentId.trim(),
+  classId: formState.classId,
+  teacherId: formState.teacherId,
+  teacherName: formState.teacherName.trim(),
+  gpa: `${formState.gpa}`.trim(),
+  attendance: `${formState.attendance}`.trim(),
+  performanceStatus: formState.performanceStatus,
+  teacherRemarks: formState.teacherRemarks.trim(),
+  subjects: formState.subjects
+    .map((subject) => ({
+      id: subject.id.trim(),
+      name: subject.name.trim(),
+      teacher: subject.teacher.trim(),
+      q1: `${subject.q1}`.trim(),
+      q2: `${subject.q2}`.trim(),
+      q3: `${subject.q3}`.trim(),
+      q4: `${subject.q4}`.trim()
+    }))
+    .filter((subject) => Object.values(subject).some(Boolean))
+});
+
 const StudentRecordModal = ({
   title,
   student,
@@ -61,6 +87,7 @@ const StudentRecordModal = ({
     defaultTeacherId,
     defaultTeacherName
   }));
+  const [confirmState, setConfirmState] = useState(null);
 
   useEffect(() => {
     setFormData(buildInitialFormState({
@@ -69,7 +96,18 @@ const StudentRecordModal = ({
       defaultTeacherId,
       defaultTeacherName
     }));
+    setConfirmState(null);
   }, [student, defaultClassId, defaultTeacherId, defaultTeacherName]);
+
+  const initialFormState = buildInitialFormState({
+    student,
+    defaultClassId,
+    defaultTeacherId,
+    defaultTeacherName
+  });
+
+  const hasUnsavedChanges = JSON.stringify(normalizeStudentFormState(formData))
+    !== JSON.stringify(normalizeStudentFormState(initialFormState));
 
   const updateSubjectField = (index, field, value) => {
     setFormData((previous) => ({
@@ -94,9 +132,45 @@ const StudentRecordModal = ({
     }));
   };
 
-  const handleSubmit = async (event) => {
+  const handleSubmitRequest = (event) => {
     event.preventDefault();
-    await onSubmit(formData);
+    setConfirmState({
+      tone: "info",
+      title: student ? "Save student updates?" : "Add this student now?",
+      message: student
+        ? "The class record, subjects, and summary details will be updated after you confirm."
+        : "This student will be added to the selected class and become visible in the roster."
+    });
+  };
+
+  const handleCloseRequest = () => {
+    if (!hasUnsavedChanges) {
+      onClose();
+      return;
+    }
+
+    setConfirmState({
+      tone: "warning",
+      title: "Discard your changes?",
+      message: "Your unsaved edits will be lost if you leave this form now.",
+      confirmLabel: "Discard Changes",
+      cancelLabel: "Keep Editing",
+      action: "discard"
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (confirmState?.action === "discard") {
+      setConfirmState(null);
+      onClose();
+      return;
+    }
+
+    try {
+      await onSubmit(formData);
+    } finally {
+      setConfirmState(null);
+    }
   };
 
   return (
@@ -106,7 +180,7 @@ const StudentRecordModal = ({
           <h3>{title}</h3>
           <span className="meta-badge">{student ? "Edit" : "New"}</span>
         </div>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmitRequest}>
           <div className="modal-form-grid">
             <div className="form-group">
               <label>Student Name</label>
@@ -289,12 +363,25 @@ const StudentRecordModal = ({
             <button type="submit" className="primary-btn">
               {saving ? "Saving..." : submitLabel}
             </button>
-            <button type="button" className="secondary-btn" onClick={onClose}>
+            <button type="button" className="secondary-btn" onClick={handleCloseRequest}>
               Cancel
             </button>
           </div>
         </form>
       </div>
+
+      {confirmState && (
+        <ConfirmDialog
+          tone={confirmState.tone}
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel || (student ? "Save Changes" : "Add Student")}
+          cancelLabel={confirmState.cancelLabel || "Go Back"}
+          busy={saving}
+          onConfirm={handleConfirmAction}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
     </div>
   );
 };

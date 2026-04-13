@@ -19,6 +19,7 @@ import TeacherView from "./TeacherView";
 import StudentView from "./StudentView";
 import ParentView from "./ParentView";
 import SettingsView from "./SettingsView";
+import ConfirmDialog from "../components/ConfirmDialog";
 import "./Dashboard.css";
 
 const Dashboard = () => {
@@ -28,6 +29,8 @@ const Dashboard = () => {
   const role = userData?.role;
   const roleLabel = role ? `${role.charAt(0).toUpperCase() + role.slice(1)} Portal` : "Portal";
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
 
   useEffect(() => {
     setIsSidebarOpen(false);
@@ -42,8 +45,15 @@ const Dashboard = () => {
   }, [isSidebarOpen]);
 
   const handleLogout = async () => {
-    await logout();
-    navigate("/login");
+    setIsLoggingOut(true);
+
+    try {
+      await logout();
+      navigate("/login");
+    } finally {
+      setIsLoggingOut(false);
+      setIsLogoutDialogOpen(false);
+    }
   };
 
   const getSidebarItems = () => {
@@ -177,7 +187,7 @@ const Dashboard = () => {
             </NavLink>
           ))}
         </nav>
-        <button className="logout-btn" type="button" onClick={handleLogout}>
+        <button className="logout-btn" type="button" onClick={() => setIsLogoutDialogOpen(true)}>
           <LogOut size={20} />
           <span>Logout</span>
         </button>
@@ -209,6 +219,19 @@ const Dashboard = () => {
           </Routes>
         </section>
       </main>
+
+      {isLogoutDialogOpen && (
+        <ConfirmDialog
+          tone="danger"
+          title="Log out from this session?"
+          message="You will be signed out on this device and returned to the login screen."
+          confirmLabel="Log Out"
+          cancelLabel="Stay Here"
+          busy={isLoggingOut}
+          onConfirm={handleLogout}
+          onCancel={() => setIsLogoutDialogOpen(false)}
+        />
+      )}
     </div>
   );
 };
