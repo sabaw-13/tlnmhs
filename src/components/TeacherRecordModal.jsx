@@ -7,6 +7,7 @@ const buildTeacherFormState = (teacher) => ({
   accountId: teacher?.id || "",
   name: teacher?.name || "",
   email: teacher?.email || "",
+  password: "",
   subjects: teacher?.subjects?.length
     ? teacher.subjects.map((subject) => ({ value: subject }))
     : [createEmptySubjectName()]
@@ -16,6 +17,7 @@ const normalizeTeacherFormState = (formState) => ({
   accountId: formState.accountId.trim(),
   name: formState.name.trim(),
   email: formState.email.trim(),
+  password: formState.password.trim(),
   subjects: formState.subjects
     .map((subject) => subject.value.trim())
     .filter(Boolean)
@@ -69,7 +71,7 @@ const TeacherRecordModal = ({
       title: teacher?.id ? "Save teacher updates?" : "Add this teacher now?",
       message: teacher?.id
         ? "The teacher profile and assigned subjects will be updated after you confirm."
-        : "This teacher record and subject load will be added to the repository."
+        : "This teacher record, subject load, and login account will be created after you confirm."
     });
   };
 
@@ -98,9 +100,9 @@ const TeacherRecordModal = ({
 
     try {
       await onSubmit({
-        accountId: formData.accountId,
         name: formData.name,
         email: formData.email,
+        password: formData.password,
         subjects: formData.subjects.map((subject) => subject.value).filter(Boolean)
       });
     } finally {
@@ -136,19 +138,23 @@ const TeacherRecordModal = ({
                 value={formData.email}
                 onChange={(event) => setFormData({ ...formData, email: event.target.value })}
                 placeholder="teacher@email.com"
+                required
               />
             </div>
 
-            <div className="form-group form-group-full">
-              <label>Teacher UID / Account ID</label>
-              <input
-                type="text"
-                value={formData.accountId}
-                onChange={(event) => setFormData({ ...formData, accountId: event.target.value })}
-                placeholder="Optional: use existing Firebase Auth UID"
-                disabled={Boolean(teacher?.id)}
-              />
-            </div>
+            {!teacher?.id && (
+              <div className="form-group form-group-full">
+                <label>Initial Password</label>
+                <input
+                  type="text"
+                  minLength="6"
+                  value={formData.password}
+                  onChange={(event) => setFormData({ ...formData, password: event.target.value })}
+                  placeholder="Set the teacher's first password"
+                  required
+                />
+              </div>
+            )}
           </div>
 
           <div className="subject-editor">

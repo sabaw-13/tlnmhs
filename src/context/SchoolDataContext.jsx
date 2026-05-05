@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { onValue, push, ref, update } from "firebase/database";
+import { onValue, ref, update } from "firebase/database";
 import { db } from "../firebase";
 import { useAuth } from "./AuthContext";
 import {
@@ -12,6 +12,7 @@ import {
   normalizeCollection,
   toNumber
 } from "../utils/reporting";
+import { createManagedAccount, updateManagedAccount } from "../utils/adminAccounts";
 
 const SchoolDataContext = createContext();
 const averageValues = (values) => {
@@ -64,6 +65,49 @@ export const SchoolDataProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingStudentId, setSavingStudentId] = useState("");
+  const [savingTeacherId, setSavingTeacherId] = useState("");
+
+  const assertAdminAccess = () => {
+    if (userData?.role !== "admin") {
+      throw new Error("Only admin accounts can manage student and teacher credentials.");
+    }
+  };
+
+  const syncManagedAccount = async ({ uid, email, displayName, password }) => {
+    const accountUpdates = {};
+
+    if (typeof email === "string" && email.trim()) {
+      accountUpdates.email = email.trim();
+    }
+
+    if (typeof displayName === "string") {
+      accountUpdates.displayName = displayName.trim();
+    }
+
+    if (typeof password === "string" && password.trim()) {
+      accountUpdates.password = password.trim();
+    }
+
+    if (!Object.keys(accountUpdates).length) {
+      return null;
+    }
+
+    try {
+      return await updateManagedAccount({
+        uid,
+        ...accountUpdates
+      });
+    } catch (error) {
+      const message = String(error?.message || "");
+
+      if (/user[-\s]?not[-\s]?found|no user record/i.test(message)) {
+        console.warn(`Skipping auth sync for missing account ${uid}.`, error);
+        return null;
+      }
+
+      throw error;
+    }
+  };
 
   useEffect(() => {
     if (authLoading) return undefined;
@@ -232,8 +276,38 @@ export const SchoolDataProvider = ({ children }) => {
   };
 
   const saveStudentRecord = async ({ studentId, payload }) => {
-    const generatedStudentRef = studentId ? null : push(ref(db, "students"));
-    const targetStudentId = studentId || generatedStudentRef?.key;
+    const isNewStudent = !studentId;
+    const trimmedStudentNumber = String(payload.studentNumber || "").trim();
+    const trimmedStudentEmail = String(payload.email || "").trim();
+    const trimmedStudentName = payload.name?.trim() || "Unnamed Student";
+    let targetStudentId = studentId;
+
+    if (isNewStudent) {
+      assertAdminAccess();
+
+      if (!trimmedStudentEmail) {
+        throw new Error("Student email is required to create the account.");
+      }
+
+      if (trimmedStudentNumber.length < 6) {
+        throw new Error("Student ID number must be at least 6 characters to use as the default password.");
+      }
+
+      const createdAccount = await createManagedAccount({
+        role: "student",
+        email: trimmedStudentEmail,
+        password: trimmedStudentNumber,
+        displayName: trimmedStudentName
+      });
+
+      targetStudentId = createdAccount.uid;
+    } else if (userData?.role === "admin" && users.some((user) => user.id === studentId)) {
+      await syncManagedAccount({
+        uid: studentId,
+        email: trimmedStudentEmail,
+        displayName: trimmedStudentName
+      });
+    }
 
     if (!targetStudentId) {
       throw new Error("Student ID could not be generated.");
@@ -242,6 +316,9 @@ export const SchoolDataProvider = ({ children }) => {
     setSavingStudentId(targetStudentId);
 
     try {
+      const existingUser = users.find((user) => user.id === targetStudentId) || null;
+      const existingUserData = existingUser ? { ...existingUser } : {};
+      delete existingUserData.id;
       const existingStudent = rawStudents.find((student) => student.id === targetStudentId) || null;
       const existingStudentData = existingStudent ? { ...existingStudent } : {};
       delete existingStudentData.id;
@@ -295,8 +372,9 @@ export const SchoolDataProvider = ({ children }) => {
       const updates = {
         [`students/${targetStudentId}`]: {
           ...existingStudentData,
-          name: payload.name?.trim() || existingStudent?.name || "Unnamed Student",
-          email: payload.email?.trim() || "",
+          name: trimmedStudentName,
+          email: trimmedStudentEmail,
+          studentNumber: trimmedStudentNumber || existingStudent?.studentNumber || "",
           parentName: payload.parentName?.trim() || "",
           parentId: payload.parentId?.trim() || null,
           classId: nextClassId,
@@ -315,6 +393,22 @@ export const SchoolDataProvider = ({ children }) => {
           updatedByName: userData?.displayName || userData?.email || currentUser?.email || "System User",
           updatedByRole: userData?.role || "unknown",
           lastUpdateLabel: formatShortDate(now)
+        },
+        [`users/${targetStudentId}`]: {
+          ...existingUserData,
+          displayName: trimmedStudentName,
+          name: trimmedStudentName,
+          email: trimmedStudentEmail,
+          role: "student",
+          studentId: targetStudentId,
+          studentNumber: trimmedStudentNumber || existingUser?.studentNumber || "",
+          parentId: payload.parentId?.trim() || null,
+          parentName: payload.parentName?.trim() || "",
+          classId: nextClassId,
+          className: classroom?.name || classroom?.section || payload.className || "",
+          updatedAt: now,
+          updatedByName: userData?.displayName || userData?.email || currentUser?.email || "System User",
+          updatedByRole: userData?.role || "unknown"
         }
       };
 
@@ -338,37 +432,90 @@ export const SchoolDataProvider = ({ children }) => {
   };
 
   const saveTeacherRecord = async ({ teacherId, payload }) => {
-    const targetTeacherId = teacherId || payload.accountId?.trim() || push(ref(db, "users")).key;
+    assertAdminAccess();
+
+    const isNewTeacher = !teacherId;
+    const teacherName = payload.name?.trim() || "Teacher";
+    const teacherEmail = payload.email?.trim() || "";
+    let targetTeacherId = teacherId;
+
+    if (isNewTeacher) {
+      const teacherPassword = String(payload.password || "").trim();
+
+      if (!teacherEmail) {
+        throw new Error("Teacher email is required to create the account.");
+      }
+
+      if (teacherPassword.length < 6) {
+        throw new Error("Teacher password must be at least 6 characters long.");
+      }
+
+      const createdAccount = await createManagedAccount({
+        role: "teacher",
+        email: teacherEmail,
+        password: teacherPassword,
+        displayName: teacherName
+      });
+
+      targetTeacherId = createdAccount.uid;
+    } else {
+      await syncManagedAccount({
+        uid: teacherId,
+        email: teacherEmail,
+        displayName: teacherName
+      });
+    }
 
     if (!targetTeacherId) {
       throw new Error("Teacher ID could not be generated.");
     }
 
+    setSavingTeacherId(targetTeacherId);
+
     const existingTeacher = users.find((user) => user.id === targetTeacherId) || null;
     const existingTeacherData = existingTeacher ? { ...existingTeacher } : {};
     delete existingTeacherData.id;
 
-    const teacherName = payload.name?.trim() || existingTeacher?.displayName || existingTeacher?.name || "Teacher";
-    const teacherEmail = payload.email?.trim() || existingTeacher?.email || "";
     const teacherSubjects = normalizeTeacherSubjects(payload.subjects);
     const now = new Date().toISOString();
 
-    const updates = {
-      [`users/${targetTeacherId}`]: {
-        ...existingTeacherData,
-        displayName: teacherName,
-        name: teacherName,
-        email: teacherEmail,
-        role: "teacher",
-        subjects: teacherSubjects,
-        updatedAt: now,
-        updatedByName: userData?.displayName || userData?.email || currentUser?.email || "System User",
-        updatedByRole: userData?.role || "unknown"
-      }
-    };
+    try {
+      const updates = {
+        [`users/${targetTeacherId}`]: {
+          ...existingTeacherData,
+          displayName: teacherName,
+          name: teacherName,
+          email: teacherEmail,
+          role: "teacher",
+          subjects: teacherSubjects,
+          updatedAt: now,
+          updatedByName: userData?.displayName || userData?.email || currentUser?.email || "System User",
+          updatedByRole: userData?.role || "unknown"
+        }
+      };
 
-    await update(ref(db), updates);
-    return targetTeacherId;
+      await update(ref(db), updates);
+      return targetTeacherId;
+    } finally {
+      setSavingTeacherId("");
+    }
+  };
+
+  const resetUserPassword = async ({ userId, password }) => {
+    assertAdminAccess();
+
+    if (!userId?.trim()) {
+      throw new Error("A user account is required before the password can be reset.");
+    }
+
+    if (String(password || "").trim().length < 6) {
+      throw new Error("Password must be at least 6 characters long.");
+    }
+
+    await updateManagedAccount({
+      uid: userId.trim(),
+      password: String(password).trim()
+    });
   };
 
   const value = {
@@ -384,9 +531,11 @@ export const SchoolDataProvider = ({ children }) => {
     currentStudent,
     linkedStudent,
     savingStudentId,
+    savingTeacherId,
     getTeacherClasses,
     getStudentsForClass,
     findStudentById,
+    resetUserPassword,
     saveStudentRecord,
     saveTeacherRecord,
     updateStudentRecord

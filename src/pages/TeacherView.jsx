@@ -124,11 +124,6 @@ const TeacherView = ({ section = "overview" }) => {
             ))}
           </select>
         </label>
-        {section === "gradebook" && (
-          <button type="button" className="primary-btn" onClick={() => openStudentModal()}>
-            Add Student
-          </button>
-        )}
       </div>
     </div>
   );
@@ -376,6 +371,7 @@ const TeacherView = ({ section = "overview" }) => {
           defaultClassId={selectedClass?.id || ""}
           defaultTeacherId={selectedClass?.teacherId || selectedClass?.teacherUid || ""}
           defaultTeacherName={classTeacherName}
+          lockIdentityFields
           saving={Boolean(savingStudentId)}
           submitLabel={managingStudent.id ? "Save Changes" : "Add Student"}
           onClose={() => setManagingStudent(null)}

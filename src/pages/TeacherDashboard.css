@@ -61,6 +61,12 @@
   gap: 0.75rem;
 }
 
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .toolbar,
 .panel,
 .empty-state,
@@ -459,6 +465,15 @@
   border-color: var(--success-border);
 }
 
+.error-banner {
+  padding: 1.5rem;
+  color: var(--error-soft-text);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
 .loading-container,
 .error-container {
   min-height: 200px;
@@ -644,6 +659,8 @@
 
   .toolbar-actions .primary-btn,
   .toolbar-actions .secondary-btn,
+  .table-actions .primary-btn,
+  .table-actions .secondary-btn,
   .inline-actions .meta-badge,
   .wide-btn {
     width: 100%;

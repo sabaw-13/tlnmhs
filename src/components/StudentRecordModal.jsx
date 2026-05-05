@@ -19,6 +19,7 @@ const buildInitialFormState = ({
 }) => ({
   name: student?.name || "",
   email: student?.email || "",
+  studentNumber: student?.studentNumber || student?.raw?.studentNumber || "",
   parentName: student?.parentName || "",
   parentId: student?.parentId || "",
   classId: student?.classId || defaultClassId,
@@ -44,6 +45,7 @@ const buildInitialFormState = ({
 const normalizeStudentFormState = (formState) => ({
   name: formState.name.trim(),
   email: formState.email.trim(),
+  studentNumber: formState.studentNumber.trim(),
   parentName: formState.parentName.trim(),
   parentId: formState.parentId.trim(),
   classId: formState.classId,
@@ -76,6 +78,7 @@ const StudentRecordModal = ({
   defaultTeacherName = "",
   showClassSelector = false,
   allowTeacherSelection = false,
+  lockIdentityFields = false,
   saving = false,
   submitLabel = "Save Student",
   onClose,
@@ -139,7 +142,7 @@ const StudentRecordModal = ({
       title: student ? "Save student updates?" : "Add this student now?",
       message: student
         ? "The class record, subjects, and summary details will be updated after you confirm."
-        : "This student will be added to the selected class and become visible in the roster."
+        : "This student will be added to the selected class, a student account will be created, and the ID number will be used as the first password."
     });
   };
 
@@ -189,6 +192,7 @@ const StudentRecordModal = ({
                 value={formData.name}
                 onChange={(event) => setFormData({ ...formData, name: event.target.value })}
                 placeholder="Enter student name"
+                disabled={lockIdentityFields}
                 required
               />
             </div>
@@ -200,6 +204,20 @@ const StudentRecordModal = ({
                 value={formData.email}
                 onChange={(event) => setFormData({ ...formData, email: event.target.value })}
                 placeholder="student@email.com"
+                disabled={lockIdentityFields}
+                required={!student}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Student ID Number</label>
+              <input
+                type="text"
+                value={formData.studentNumber}
+                onChange={(event) => setFormData({ ...formData, studentNumber: event.target.value })}
+                placeholder="Used as the default password"
+                disabled={lockIdentityFields}
+                required={!student}
               />
             </div>
 
@@ -210,6 +228,7 @@ const StudentRecordModal = ({
                 value={formData.parentName}
                 onChange={(event) => setFormData({ ...formData, parentName: event.target.value })}
                 placeholder="Parent or guardian"
+                disabled={lockIdentityFields}
               />
             </div>
 
@@ -220,6 +239,7 @@ const StudentRecordModal = ({
                 value={formData.parentId}
                 onChange={(event) => setFormData({ ...formData, parentId: event.target.value })}
                 placeholder="Linked parent UID"
+                disabled={lockIdentityFields}
               />
             </div>
 

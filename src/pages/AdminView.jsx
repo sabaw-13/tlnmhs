@@ -3,6 +3,7 @@ import { formatShortDate } from "../utils/reporting";
 import { useSchoolData } from "../context/SchoolDataContext";
 import StudentRecordModal from "../components/StudentRecordModal";
 import TeacherRecordModal from "../components/TeacherRecordModal";
+import AccountPasswordModal from "../components/AccountPasswordModal";
 import "./TeacherDashboard.css";
 
 const AdminView = ({ section = "overview" }) => {
@@ -11,9 +12,11 @@ const AdminView = ({ section = "overview" }) => {
     error,
     loading,
     repositorySummary,
+    resetUserPassword,
     saveStudentRecord,
     saveTeacherRecord,
     savingStudentId,
+    savingTeacherId,
     students,
     teacherUsers,
     users
@@ -21,8 +24,10 @@ const AdminView = ({ section = "overview" }) => {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [managingStudent, setManagingStudent] = useState(null);
   const [managingTeacher, setManagingTeacher] = useState(null);
+  const [resettingAccount, setResettingAccount] = useState(null);
   const [savingTeacher, setSavingTeacher] = useState(false);
-  const [saveMessage, setSaveMessage] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
     if (!classReports.length) {
@@ -62,21 +67,33 @@ const AdminView = ({ section = "overview" }) => {
       remarks: formData.teacherRemarks || formData.performanceStatus
     };
 
-    await saveStudentRecord({
-      studentId: managingStudent?.id,
-      payload: {
-        ...formData,
-        classId,
-        activities: managingStudent?.id
-          ? [activityEntry, ...(Array.isArray(managingStudent?.raw?.activities)
-            ? managingStudent.raw.activities
-            : Object.values(managingStudent?.raw?.activities || {}))].slice(0, 6)
-          : [activityEntry]
-      }
-    });
+    try {
+      await saveStudentRecord({
+        studentId: managingStudent?.id,
+        payload: {
+          ...formData,
+          classId,
+          activities: managingStudent?.id
+            ? [activityEntry, ...(Array.isArray(managingStudent?.raw?.activities)
+              ? managingStudent.raw.activities
+              : Object.values(managingStudent?.raw?.activities || {}))].slice(0, 6)
+            : [activityEntry]
+        }
+      });
 
-    setManagingStudent(null);
-    setSaveMessage(managingStudent?.id ? "Student record updated." : "Student added to the selected class.");
+      setManagingStudent(null);
+      setFeedback({
+        type: "success",
+        message: managingStudent?.id
+          ? "Student record updated."
+          : `Student added. The new account password is the ID number: ${formData.studentNumber}.`
+      });
+    } catch (saveError) {
+      setFeedback({
+        type: "error",
+        message: saveError?.message || "Student details could not be saved."
+      });
+    }
   };
 
   const handleSaveTeacher = async (formData) => {
@@ -89,15 +106,57 @@ const AdminView = ({ section = "overview" }) => {
       });
 
       setManagingTeacher(null);
-      setSaveMessage(managingTeacher?.id ? "Teacher profile updated." : "Teacher profile added.");
+      setFeedback({
+        type: "success",
+        message: managingTeacher?.id
+          ? "Teacher profile updated."
+          : "Teacher profile added and login account created."
+      });
+    } catch (saveError) {
+      setFeedback({
+        type: "error",
+        message: saveError?.message || "Teacher details could not be saved."
+      });
     } finally {
       setSavingTeacher(false);
     }
   };
 
+  const handleResetPassword = async (password) => {
+    if (!resettingAccount?.id) {
+      throw new Error("No account was selected for password reset.");
+    }
+
+    setSavingPassword(true);
+
+    try {
+      await resetUserPassword({
+        userId: resettingAccount.id,
+        password
+      });
+
+      setResettingAccount(null);
+      setFeedback({
+        type: "success",
+        message: `${resettingAccount.name}'s password has been updated.`
+      });
+    } catch (saveError) {
+      setFeedback({
+        type: "error",
+        message: saveError?.message || "Password could not be updated."
+      });
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
   return (
     <div className="admin-view">
-      {saveMessage && <div className="success-banner">{saveMessage}</div>}
+      {feedback && (
+        <div className={feedback.type === "error" ? "error-banner" : "success-banner"}>
+          {feedback.message}
+        </div>
+      )}
 
       {section === "overview" && (
         <div className="stats-grid">
@@ -216,6 +275,7 @@ const AdminView = ({ section = "overview" }) => {
               <thead>
                 <tr>
                   <th>Student</th>
+                  <th>ID Number</th>
                   <th>Email</th>
                   <th>Average</th>
                   <th>Attendance</th>
@@ -227,20 +287,35 @@ const AdminView = ({ section = "overview" }) => {
                 {(selectedClass?.students || []).map((student) => (
                   <tr key={student.id}>
                     <td data-label="Student">{student.name}</td>
+                    <td data-label="ID Number">{student.studentNumber || "N/A"}</td>
                     <td data-label="Email">{student.email || "N/A"}</td>
                     <td data-label="Average">{student.gpa ?? "N/A"}</td>
                     <td data-label="Attendance">{student.attendanceLabel}</td>
                     <td data-label="Teacher">{student.teacherName}</td>
                     <td data-label="Action">
-                      <button className="secondary-btn" type="button" onClick={() => setManagingStudent(student)}>
-                        Edit
-                      </button>
+                      <div className="table-actions">
+                        <button className="secondary-btn" type="button" onClick={() => setManagingStudent(student)}>
+                          Edit
+                        </button>
+                        <button
+                          className="primary-btn"
+                          type="button"
+                          onClick={() => setResettingAccount({
+                            id: student.id,
+                            name: student.name,
+                            role: "student",
+                            defaultPassword: student.studentNumber || ""
+                          })}
+                        >
+                          Reset Password
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {(selectedClass?.students || []).length === 0 && (
                   <tr>
-                    <td colSpan="6">No students assigned to this class.</td>
+                    <td colSpan="7">No students assigned to this class.</td>
                   </tr>
                 )}
               </tbody>
@@ -272,9 +347,23 @@ const AdminView = ({ section = "overview" }) => {
                     <td data-label="Subjects">{teacher.subjects.length ? teacher.subjects.join(", ") : "None"}</td>
                     <td data-label="Classes">{teacher.classCount}</td>
                     <td data-label="Action">
-                      <button className="secondary-btn" type="button" onClick={() => setManagingTeacher(teacher)}>
-                        Edit
-                      </button>
+                      <div className="table-actions">
+                        <button className="secondary-btn" type="button" onClick={() => setManagingTeacher(teacher)}>
+                          Edit
+                        </button>
+                        <button
+                          className="primary-btn"
+                          type="button"
+                          onClick={() => setResettingAccount({
+                            id: teacher.id,
+                            name: teacher.name,
+                            role: "teacher",
+                            defaultPassword: ""
+                          })}
+                        >
+                          Reset Password
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -371,9 +460,23 @@ const AdminView = ({ section = "overview" }) => {
       {managingTeacher && (
         <TeacherRecordModal
           teacher={managingTeacher.id ? managingTeacher : null}
-          saving={savingTeacher}
+          saving={savingTeacher || Boolean(savingTeacherId)}
           onClose={() => setManagingTeacher(null)}
           onSubmit={handleSaveTeacher}
+        />
+      )}
+
+      {resettingAccount && (
+        <AccountPasswordModal
+          accountLabel={resettingAccount.role}
+          defaultPassword={resettingAccount.defaultPassword}
+          description={resettingAccount.role === "student"
+            ? "Student accounts can be reset back to the current ID number or changed to another password."
+            : "Set a new password for this teacher account."}
+          saving={savingPassword}
+          title={`Reset Password: ${resettingAccount.name}`}
+          onClose={() => setResettingAccount(null)}
+          onSubmit={handleResetPassword}
         />
       )}
     </div>

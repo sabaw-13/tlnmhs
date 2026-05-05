@@ -166,6 +166,7 @@ export const buildStudentRecord = ({ student, users, classes }) => {
     id: student.id,
     name: student.name || student.displayName || linkedUser.displayName || linkedUser.name || linkedUser.email || "Unnamed Student",
     email: student.email || linkedUser.email || "",
+    studentNumber: student.studentNumber || student.studentIdNumber || student.lrn || linkedUser.studentNumber || "",
     parentId: student.parentId || linkedUser.parentId || null,
     parentName: student.parentName || linkedUser.parentName || "",
     classId: linkedClass?.id || classId,
