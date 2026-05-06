@@ -6,6 +6,7 @@ import {
   BarChart3,
   BellRing,
   BookOpen,
+  CalendarCheck,
   ClipboardCheck,
   Database,
   GraduationCap,
@@ -74,6 +75,7 @@ const Dashboard = () => {
     if (role === "teacher") {
       return [
         ...common,
+        { path: "/dashboard/attendance", label: "Attendance", icon: <CalendarCheck size={20} /> },
         { path: "/dashboard/gradebook", label: "Gradebook", icon: <BookOpen size={20} /> },
         { path: "/dashboard/reports", label: "Reports", icon: <ClipboardCheck size={20} /> },
         settingsItem
@@ -115,6 +117,7 @@ const Dashboard = () => {
         return (
           <>
             <Route index element={<TeacherView section="overview" />} />
+            <Route path="attendance" element={<TeacherView section="attendance" />} />
             <Route path="gradebook" element={<TeacherView section="gradebook" />} />
             <Route path="reports" element={<TeacherView section="reports" />} />
           </>
@@ -165,14 +168,6 @@ const Dashboard = () => {
             <h2>TLNMHS</h2>
             <span>{roleLabel}</span>
           </div>
-          <button
-            className="sidebar-close-btn"
-            type="button"
-            aria-label="Close navigation menu"
-            onClick={() => setIsSidebarOpen(false)}
-          >
-            <span aria-hidden="true">X</span>
-          </button>
         </div>
         <nav className="sidebar-nav">
           {getSidebarItems().map((item) => (

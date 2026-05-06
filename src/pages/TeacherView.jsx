@@ -6,6 +6,25 @@ import StudentRecordModal from "../components/StudentRecordModal";
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
+const ATTENDANCE_STATUS_OPTIONS = [
+  { value: "present", label: "Present" },
+  { value: "absent", label: "Absent" },
+  { value: "late", label: "Late" },
+  { value: "excused", label: "Excused" }
+];
+const ATTENDED_STATUSES = new Set(["present", "late", "excused"]);
+
+const getLocalDateValue = () => {
+  const date = new Date();
+  const timezoneOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
+};
+
+const formatDateLabel = (dateValue) => {
+  if (!dateValue) return "Selected date";
+
+  return formatShortDate(`${dateValue}T00:00:00`);
+};
 
 const TeacherView = ({ section = "overview" }) => {
   const { userData, currentUser } = useAuth();
@@ -13,11 +32,18 @@ const TeacherView = ({ section = "overview" }) => {
     error,
     loading,
     savingStudentId,
+    savingAttendanceKey,
     teacherClassReports,
+    getAttendanceRecord,
+    saveDailyAttendanceRecord,
     saveStudentRecord
   } = useSchoolData();
   const [selectedClassId, setSelectedClassId] = useState("");
   const [managingStudent, setManagingStudent] = useState(null);
+  const [attendanceDate, setAttendanceDate] = useState(getLocalDateValue);
+  const [dailyAttendanceDrafts, setDailyAttendanceDrafts] = useState({});
+  const [isNoClassDay, setIsNoClassDay] = useState(false);
+  const [noClassReason, setNoClassReason] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
@@ -34,7 +60,36 @@ const TeacherView = ({ section = "overview" }) => {
 
   const selectedClass = teacherClassReports.find((classroom) => classroom.id === selectedClassId) || teacherClassReports[0] || null;
   const students = selectedClass?.students || [];
+  const studentRosterKey = students.map((student) => student.id).join("|");
+  const selectedAttendanceRecord = selectedClass ? getAttendanceRecord(selectedClass.id, attendanceDate) : null;
+
+  useEffect(() => {
+    setIsNoClassDay(selectedAttendanceRecord?.status === "no-class");
+    setNoClassReason(selectedAttendanceRecord?.noClassReason || "");
+    setDailyAttendanceDrafts((currentDrafts) => {
+      const nextDrafts = {};
+
+      students.forEach((student) => {
+        nextDrafts[student.id] = selectedAttendanceRecord
+          ? selectedAttendanceRecord.records?.[student.id]?.status || "present"
+          : "present";
+      });
+
+      if (JSON.stringify(nextDrafts) === JSON.stringify(currentDrafts)) {
+        return currentDrafts;
+      }
+
+      return nextDrafts;
+    });
+  }, [attendanceDate, selectedClassId, selectedAttendanceRecord, studentRosterKey]);
+
   const studentsNeedingSupport = students.filter((student) => student.performanceStatus === "Needs Support");
+  const dailyPresentCount = isNoClassDay
+    ? 0
+    : students.filter((student) => ATTENDED_STATUSES.has(dailyAttendanceDrafts[student.id] || "present")).length;
+  const dailyAbsentCount = isNoClassDay
+    ? 0
+    : students.filter((student) => (dailyAttendanceDrafts[student.id] || "present") === "absent").length;
   const topPerformer = [...students]
     .filter((student) => Number.isFinite(student.gpa))
     .sort((left, right) => right.gpa - left.gpa)[0] || null;
@@ -49,6 +104,7 @@ const TeacherView = ({ section = "overview" }) => {
   ];
   const sectionMeta = {
     overview: "Teaching Overview",
+    attendance: "Attendance",
     gradebook: "Gradebook",
     reports: "Reports"
   };
@@ -62,6 +118,39 @@ const TeacherView = ({ section = "overview" }) => {
   const openStudentModal = (student = null) => {
     setManagingStudent(student || {});
     setSaveMessage("");
+  };
+
+  const handleDailyAttendanceChange = (studentId, value) => {
+    setDailyAttendanceDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [studentId]: value
+    }));
+  };
+
+  const handleMarkAll = (status) => {
+    setDailyAttendanceDrafts(students.reduce((drafts, student) => ({
+      ...drafts,
+      [student.id]: status
+    }), {}));
+  };
+
+  const handleSaveDailyAttendance = async () => {
+    await saveDailyAttendanceRecord({
+      classId: selectedClass?.id,
+      className: selectedClass?.name || selectedClass?.section || "",
+      date: attendanceDate,
+      isNoClass: isNoClassDay,
+      noClassReason,
+      entries: students.map((student) => ({
+        studentId: student.id,
+        studentName: student.name,
+        status: dailyAttendanceDrafts[student.id] || "present"
+      }))
+    });
+
+    setSaveMessage(isNoClassDay
+      ? `${formatDateLabel(attendanceDate)} marked as no class.`
+      : `Attendance saved for ${formatDateLabel(attendanceDate)}.`);
   };
 
   const handleSaveStudent = async (formData) => {
@@ -145,7 +234,7 @@ const TeacherView = ({ section = "overview" }) => {
           </div>
           <div className="stat-card">
             <h4>Attendance Average</h4>
-            <p>{selectedClass?.averageAttendance ? `${selectedClass.averageAttendance}%` : "N/A"}</p>
+            <p>{Number.isFinite(selectedClass?.averageAttendance) ? `${selectedClass.averageAttendance}%` : "N/A"}</p>
           </div>
           <div className="stat-card">
             <h4>Students in Class</h4>
@@ -290,6 +379,112 @@ const TeacherView = ({ section = "overview" }) => {
             </tbody>
           </table>
         </div>
+      )}
+
+      {section === "attendance" && (
+        <>
+          <div className="panel attendance-sheet">
+            <div className="panel-header">
+              <div>
+                <h3>Attendance Sheet</h3>
+                <p className="muted-text">{selectedClass?.name || selectedClass?.section || "Selected Class"} - {formatDateLabel(attendanceDate)}</p>
+              </div>
+              <span className="meta-badge">{students.length} students</span>
+            </div>
+
+            <div className="attendance-sheet-toolbar">
+              <label className="selector-field">
+                <span>Date</span>
+                <input
+                  type="date"
+                  value={attendanceDate}
+                  onChange={(event) => setAttendanceDate(event.target.value)}
+                />
+              </label>
+              <label className="attendance-toggle">
+                <input
+                  type="checkbox"
+                  checked={isNoClassDay}
+                  onChange={(event) => setIsNoClassDay(event.target.checked)}
+                />
+                <span>No Class</span>
+              </label>
+              {!isNoClassDay && (
+                <div className="attendance-mark-all">
+                  <button type="button" className="secondary-btn" onClick={() => handleMarkAll("present")}>
+                    All Present
+                  </button>
+                  <button type="button" className="secondary-btn" onClick={() => handleMarkAll("absent")}>
+                    All Absent
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {isNoClassDay ? (
+              <div className="form-group">
+                <label>Reason</label>
+                <textarea
+                  value={noClassReason}
+                  onChange={(event) => setNoClassReason(event.target.value)}
+                  rows="3"
+                  placeholder="Example: Holiday, school activity, or class suspension"
+                />
+              </div>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Attendance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => (
+                    <tr key={student.id}>
+                      <td data-label="Student">{student.name}</td>
+                      <td data-label="Attendance">
+                        <div className="attendance-options" role="group" aria-label={`Attendance for ${student.name}`}>
+                          {ATTENDANCE_STATUS_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className={`attendance-option ${option.value}${(dailyAttendanceDrafts[student.id] || "present") === option.value ? " active" : ""}`}
+                              onClick={() => handleDailyAttendanceChange(student.id, option.value)}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {students.length === 0 && (
+                    <tr>
+                      <td colSpan="2">No students found for this class.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {!isNoClassDay && (
+              <div className="attendance-sheet-summary">
+                <span>Present/Credited: <strong>{dailyPresentCount}</strong></span>
+                <span>Absent: <strong>{dailyAbsentCount}</strong></span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="primary-btn attendance-save-btn"
+              disabled={savingAttendanceKey === `${selectedClass?.id}-${attendanceDate}`}
+              onClick={handleSaveDailyAttendance}
+            >
+              {savingAttendanceKey === `${selectedClass?.id}-${attendanceDate}` ? "Saving..." : "Save Attendance"}
+            </button>
+          </div>
+        </>
       )}
 
       {section === "reports" && (

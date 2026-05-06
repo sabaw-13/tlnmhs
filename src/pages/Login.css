@@ -19,30 +19,6 @@
   text-align: center;
 }
 
-.login-card-topbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 1.25rem;
-}
-
-.login-theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 999px;
-  border: 1px solid var(--meta-badge-border);
-  background: var(--meta-badge-bg);
-  color: var(--meta-badge-color);
-  cursor: pointer;
-  font-weight: 700;
-  transition: transform 0.2s, opacity 0.2s;
-}
-
-.login-theme-toggle:hover {
-  transform: translateY(-1px);
-}
-
 .login-card h1 {
   font-size: 1.5rem;
   font-weight: 700;
@@ -72,6 +48,39 @@
   color: var(--text-main);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 3rem;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  transform: translateY(-50%);
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+  background: var(--surface-subtle);
+  color: var(--primary);
+  outline: none;
 }
 
 .form-group input:focus {
@@ -110,11 +119,4 @@
     margin-bottom: 1.5rem;
   }
 
-  .login-theme-toggle span {
-    display: none;
-  }
-
-  .login-theme-toggle {
-    padding-inline: 0.8rem;
-  }
 }

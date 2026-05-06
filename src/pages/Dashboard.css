@@ -28,7 +28,6 @@
   gap: 1rem;
 }
 
-.sidebar-close-btn,
 .mobile-nav-btn,
 .sidebar-backdrop {
   display: none;
@@ -160,8 +159,7 @@
 }
 
 .icon-btn,
-.mobile-nav-btn,
-.sidebar-close-btn {
+.mobile-nav-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -181,8 +179,7 @@
 }
 
 .icon-btn:hover,
-.mobile-nav-btn:hover,
-.sidebar-close-btn:hover {
+.mobile-nav-btn:hover {
   transform: translateY(-1px);
 }
 
@@ -326,22 +323,8 @@
     visibility: visible;
   }
 
-  .sidebar-close-btn,
   .mobile-nav-btn {
     display: inline-flex;
-  }
-
-  .sidebar-close-btn {
-    border: 1px solid var(--sidebar-border);
-    background: rgba(15, 23, 42, 0.45);
-    color: white;
-    flex-shrink: 0;
-  }
-
-  .sidebar-close-btn span {
-    font-size: 0.95rem;
-    line-height: 1;
-    font-weight: 700;
   }
 }
 

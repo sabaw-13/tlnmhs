@@ -1,18 +1,16 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Moon, Sun } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
 import "./Login.css";
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [error, setError] = useState("");
   const { login, authError } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const isDarkMode = theme === "dark";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -28,12 +26,6 @@ const Login = () => {
   return (
     <div className="login-container">
       <div className="login-card">
-        <div className="login-card-topbar">
-          <button className="login-theme-toggle" type="button" onClick={toggleTheme}>
-            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
-            <span>{isDarkMode ? "Light mode" : "Dark mode"}</span>
-          </button>
-        </div>
         <h1>TLNMHS Progress Tracker</h1>
         <form onSubmit={handleSubmit}>
           {authError && <div className="error-message">{authError}</div>}
@@ -50,13 +42,24 @@ const Login = () => {
           </div>
           <div className="form-group">
             <label>Password</label>
-            <input 
-              type="password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              required 
-              placeholder="Enter your password"
-            />
+            <div className="password-field">
+              <input 
+                type={isPasswordVisible ? "text" : "password"} 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                required 
+                placeholder="Enter your password"
+              />
+              <button
+                className="password-toggle"
+                type="button"
+                aria-label={isPasswordVisible ? "Hide password" : "Show password"}
+                aria-pressed={isPasswordVisible}
+                onClick={() => setIsPasswordVisible((currentValue) => !currentValue)}
+              >
+                {isPasswordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
           <button type="submit" className="login-button">Login</button>
         </form>

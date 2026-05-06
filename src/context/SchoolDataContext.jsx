@@ -15,6 +15,8 @@ import {
 import { createManagedAccount, updateManagedAccount } from "../utils/adminAccounts";
 
 const SchoolDataContext = createContext();
+const ATTENDED_ATTENDANCE_STATUSES = new Set(["present", "late", "excused"]);
+
 const averageValues = (values) => {
   const validValues = values.filter((value) => Number.isFinite(value));
   if (!validValues.length) return null;
@@ -62,10 +64,12 @@ export const SchoolDataProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [classes, setClasses] = useState([]);
   const [rawStudents, setRawStudents] = useState([]);
+  const [attendanceRecords, setAttendanceRecords] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingStudentId, setSavingStudentId] = useState("");
   const [savingTeacherId, setSavingTeacherId] = useState("");
+  const [savingAttendanceKey, setSavingAttendanceKey] = useState("");
 
   const assertAdminAccess = () => {
     if (userData?.role !== "admin") {
@@ -116,6 +120,7 @@ export const SchoolDataProvider = ({ children }) => {
       setUsers([]);
       setClasses([]);
       setRawStudents([]);
+      setAttendanceRecords({});
       setError("");
       setLoading(false);
       return undefined;
@@ -124,7 +129,8 @@ export const SchoolDataProvider = ({ children }) => {
     const initialState = {
       users: false,
       classes: false,
-      students: false
+      students: false,
+      attendance: false
     };
 
     setLoading(true);
@@ -170,10 +176,20 @@ export const SchoolDataProvider = ({ children }) => {
       handleSubscriptionError
     );
 
+    const unsubscribeAttendance = onValue(
+      ref(db, "attendanceRecords"),
+      (snapshot) => {
+        setAttendanceRecords(snapshot.val() || {});
+        markLoaded("attendance");
+      },
+      handleSubscriptionError
+    );
+
     return () => {
       unsubscribeUsers();
       unsubscribeClasses();
       unsubscribeStudents();
+      unsubscribeAttendance();
     };
   }, [authLoading, currentUser]);
 
@@ -249,6 +265,47 @@ export const SchoolDataProvider = ({ children }) => {
         || (teacher.email && [classroom.teacherEmail, classroom.adviserEmail].includes(teacher.email))
       )).length
     }));
+
+  const getClassAttendanceRecords = (classId) => {
+    const classRecords = attendanceRecords?.[classId] || {};
+
+    return Object.entries(classRecords)
+      .map(([date, record]) => ({
+        date,
+        ...(record && typeof record === "object" ? record : {})
+      }))
+      .sort((left, right) => String(right.date).localeCompare(String(left.date)));
+  };
+
+  const getAttendanceRecord = (classId, date) => {
+    if (!classId || !date) return null;
+
+    const record = attendanceRecords?.[classId]?.[date];
+    if (!record || typeof record !== "object") return null;
+
+    return record.date ? record : { date, ...record };
+  };
+
+  const calculateAttendanceRate = ({ classId, studentId, date, nextRecord }) => {
+    const classRecords = {
+      ...(attendanceRecords?.[classId] || {}),
+      [date]: nextRecord
+    };
+    const countedRecords = Object.values(classRecords).filter((record) => (
+      record
+      && typeof record === "object"
+      && record.status !== "no-class"
+      && record.records?.[studentId]
+    ));
+
+    if (!countedRecords.length) return null;
+
+    const attendedCount = countedRecords.filter((record) => (
+      ATTENDED_ATTENDANCE_STATUSES.has(record.records?.[studentId]?.status)
+    )).length;
+
+    return Number(((attendedCount / countedRecords.length) * 100).toFixed(1));
+  };
 
   const getTeacherDetails = ({ teacherId, teacherEmail, teacherName, classroom }) => {
     const linkedTeacher = teacherUsers.find((teacher) => (
@@ -431,6 +488,84 @@ export const SchoolDataProvider = ({ children }) => {
     return saveStudentRecord({ studentId, payload });
   };
 
+  const saveDailyAttendanceRecord = async ({
+    classId,
+    className,
+    date,
+    isNoClass = false,
+    noClassReason = "",
+    entries = []
+  }) => {
+    if (!classId || !date) {
+      throw new Error("Class and date are required to save attendance.");
+    }
+
+    const classroom = classes.find((item) => item.id === classId) || null;
+    const now = new Date().toISOString();
+    const attendanceKey = `${classId}-${date}`;
+    const normalizedEntries = entries.reduce((records, entry) => {
+      if (!entry.studentId) return records;
+
+      records[entry.studentId] = {
+        studentId: entry.studentId,
+        studentName: entry.studentName || "Student",
+        status: entry.status || "present",
+        remarks: entry.remarks || ""
+      };
+
+      return records;
+    }, {});
+    const nextRecord = {
+      classId,
+      className: className || classroom?.name || classroom?.section || "",
+      date,
+      status: isNoClass ? "no-class" : "recorded",
+      noClassReason: isNoClass ? noClassReason.trim() : "",
+      records: isNoClass ? {} : normalizedEntries,
+      updatedAt: now,
+      updatedByName: userData?.displayName || userData?.email || currentUser?.email || "System User",
+      updatedByRole: userData?.role || "unknown"
+    };
+    const updates = {
+      [`attendanceRecords/${classId}/${date}`]: nextRecord
+    };
+
+    entries.forEach((entry) => {
+      const student = enrichedStudents.find((item) => item.id === entry.studentId);
+      if (!student) return;
+
+      const attendanceRate = calculateAttendanceRate({
+        classId,
+        studentId: entry.studentId,
+        date,
+        nextRecord
+      });
+      const nextAttendanceLabel = attendanceRate === null ? "" : `${attendanceRate}%`;
+      const performanceStatus = computePerformanceStatus({
+        gpa: student.gpa,
+        attendanceRate,
+        subjects: student.subjects
+      });
+
+      updates[`students/${entry.studentId}/attendance`] = nextAttendanceLabel;
+      updates[`students/${entry.studentId}/attendanceRate`] = attendanceRate;
+      updates[`students/${entry.studentId}/performanceStatus`] = performanceStatus;
+      updates[`students/${entry.studentId}/updatedAt`] = now;
+      updates[`students/${entry.studentId}/updatedByName`] = userData?.displayName || userData?.email || currentUser?.email || "System User";
+      updates[`students/${entry.studentId}/updatedByRole`] = userData?.role || "unknown";
+      updates[`students/${entry.studentId}/lastUpdateLabel`] = formatShortDate(now);
+    });
+
+    setSavingAttendanceKey(attendanceKey);
+
+    try {
+      await update(ref(db), updates);
+      return nextRecord;
+    } finally {
+      setSavingAttendanceKey("");
+    }
+  };
+
   const saveTeacherRecord = async ({ teacherId, payload }) => {
     assertAdminAccess();
 
@@ -528,14 +663,19 @@ export const SchoolDataProvider = ({ children }) => {
     classReports,
     teacherClassReports,
     teacherUsers,
+    attendanceRecords,
     currentStudent,
     linkedStudent,
     savingStudentId,
     savingTeacherId,
+    savingAttendanceKey,
     getTeacherClasses,
     getStudentsForClass,
+    getClassAttendanceRecords,
+    getAttendanceRecord,
     findStudentById,
     resetUserPassword,
+    saveDailyAttendanceRecord,
     saveStudentRecord,
     saveTeacherRecord,
     updateStudentRecord
