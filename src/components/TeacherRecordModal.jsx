@@ -8,6 +8,7 @@ const buildTeacherFormState = (teacher) => ({
   name: teacher?.name || "",
   email: teacher?.email || "",
   password: "",
+  advisoryClassId: teacher?.advisoryClassId || "",
   subjects: teacher?.subjects?.length
     ? teacher.subjects.map((subject) => ({ value: subject }))
     : [createEmptySubjectName()]
@@ -18,6 +19,7 @@ const normalizeTeacherFormState = (formState) => ({
   name: formState.name.trim(),
   email: formState.email.trim(),
   password: formState.password.trim(),
+  advisoryClassId: formState.advisoryClassId,
   subjects: formState.subjects
     .map((subject) => subject.value.trim())
     .filter(Boolean)
@@ -25,6 +27,7 @@ const normalizeTeacherFormState = (formState) => ({
 
 const TeacherRecordModal = ({
   teacher,
+  classOptions = [],
   saving = false,
   onClose,
   onSubmit
@@ -64,14 +67,14 @@ const TeacherRecordModal = ({
     }));
   };
 
-  const handleSubmitRequest = (event) => {
+  const handleSubmitRequest = async (event) => {
     event.preventDefault();
-    setConfirmState({
-      tone: "info",
-      title: teacher?.id ? "Save teacher updates?" : "Add this teacher now?",
-      message: teacher?.id
-        ? "The teacher profile and assigned subjects will be updated after you confirm."
-        : "This teacher record, subject load, and login account will be created after you confirm."
+    await onSubmit({
+      name: formData.name,
+      email: formData.email,
+      password: formData.password,
+      advisoryClassId: formData.advisoryClassId,
+      subjects: formData.subjects.map((subject) => subject.value).filter(Boolean)
     });
   };
 
@@ -98,16 +101,7 @@ const TeacherRecordModal = ({
       return;
     }
 
-    try {
-      await onSubmit({
-        name: formData.name,
-        email: formData.email,
-        password: formData.password,
-        subjects: formData.subjects.map((subject) => subject.value).filter(Boolean)
-      });
-    } finally {
-      setConfirmState(null);
-    }
+    setConfirmState(null);
   };
 
   return (
@@ -150,11 +144,26 @@ const TeacherRecordModal = ({
                   minLength="6"
                   value={formData.password}
                   onChange={(event) => setFormData({ ...formData, password: event.target.value })}
-                  placeholder="Set the teacher's first password"
+                  placeholder="At least 6 characters"
                   required
                 />
               </div>
             )}
+
+            <div className="form-group form-group-full">
+              <label>Advisory Class</label>
+              <select
+                value={formData.advisoryClassId}
+                onChange={(event) => setFormData({ ...formData, advisoryClassId: event.target.value })}
+              >
+                <option value="">No Advisory</option>
+                {classOptions.map((classroom) => (
+                  <option key={classroom.id} value={classroom.id}>
+                    {classroom.name || classroom.section || classroom.id}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="subject-editor">

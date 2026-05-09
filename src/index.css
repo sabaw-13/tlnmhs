@@ -1,45 +1,49 @@
 :root {
   --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-light: rgba(37, 99, 235, 0.18);
-  --bg-color: #f8fafc;
+  --primary-hover: #1e40af;
+  --primary-light: rgba(37, 99, 235, 0.14);
+  --primary-soft: #e0f2fe;
+  --accent: #14b8a6;
+  --accent-strong: #0f766e;
+  --accent-soft: #ccfbf1;
+  --bg-color: #f5f7fb;
   --card-bg: #ffffff;
-  --text-main: #0f172a;
-  --text-secondary: #64748b;
-  --accent: #10b981;
+  --text-main: #101828;
+  --text-secondary: #667085;
+  --text-muted: #98a2b3;
   --error: #ef4444;
-  --border: #e2e8f0;
-  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.12);
-  --radius: 12px;
-  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --border: #dfe7f2;
+  --shadow: 0 12px 30px -24px rgb(15 23 42 / 0.45), 0 2px 8px -6px rgb(15 23 42 / 0.22);
+  --shadow-lg: 0 26px 60px -32px rgb(15 23 42 / 0.45), 0 12px 28px -22px rgb(15 23 42 / 0.32);
+  --radius: 14px;
+  --font: "Aptos", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --bg-gradient:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 24rem),
-    linear-gradient(180deg, #eff6ff 0%, #f8fafc 34%);
-  --sidebar-gradient: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-  --sidebar-text: #cbd5e1;
-  --sidebar-muted: #94a3b8;
-  --sidebar-hover: rgba(148, 163, 184, 0.15);
-  --sidebar-border: rgba(148, 163, 184, 0.15);
-  --surface-elevated: rgba(255, 255, 255, 0.98);
+    linear-gradient(135deg, rgba(219, 234, 254, 0.88) 0%, rgba(240, 253, 250, 0.74) 36%, rgba(248, 250, 252, 1) 100%);
+  --sidebar-gradient: linear-gradient(180deg, #0b1220 0%, #102a43 54%, #0f3f4a 100%);
+  --sidebar-text: #d7e3f3;
+  --sidebar-muted: #91a6bd;
+  --sidebar-hover: rgba(255, 255, 255, 0.11);
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --surface-elevated: rgba(255, 255, 255, 0.92);
   --surface-card-start: rgba(255, 255, 255, 1);
-  --surface-card-end: rgba(248, 250, 252, 1);
-  --surface-panel-start: rgba(255, 255, 255, 0.99);
-  --surface-panel-end: rgba(248, 250, 252, 0.96);
+  --surface-card-end: rgba(248, 251, 255, 0.98);
+  --surface-panel-start: rgba(255, 255, 255, 0.96);
+  --surface-panel-end: rgba(248, 251, 255, 0.92);
   --surface-subtle: #f8fafc;
-  --surface-subtle-strong: #eff6ff;
-  --surface-subtle-border: #e5eefc;
-  --glass-bg: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(226, 232, 240, 0.9);
-  --settings-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.96) 100%);
-  --settings-panel-border: rgba(191, 219, 254, 0.95);
-  --settings-chip-bg: rgba(255, 255, 255, 0.88);
-  --settings-chip-border: rgba(191, 219, 254, 0.9);
-  --meta-badge-bg: #dbeafe;
-  --meta-badge-color: #1d4ed8;
-  --meta-badge-border: #bfdbfe;
-  --table-head-bg: #eff6ff;
-  --table-head-text: #334155;
+  --surface-subtle-strong: #eef6ff;
+  --surface-subtle-border: #dbe9f9;
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(205, 218, 234, 0.78);
+  --settings-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(240, 253, 250, 0.88) 100%);
+  --settings-panel-border: rgba(153, 213, 226, 0.7);
+  --settings-chip-bg: rgba(255, 255, 255, 0.78);
+  --settings-chip-border: rgba(191, 219, 254, 0.82);
+  --meta-badge-bg: #e0f2fe;
+  --meta-badge-color: #075985;
+  --meta-badge-border: #bae6fd;
+  --table-head-bg: #f1f7ff;
+  --table-head-text: #344054;
   --success-bg: #f0fdf4;
   --success-border: #bbf7d0;
   --success-text: #166534;
@@ -53,52 +57,55 @@
   --info-bg: #dbeafe;
   --info-text: #1d4ed8;
   --overlay: rgba(15, 23, 42, 0.48);
-  --input-bg: #f8fafc;
+  --input-bg: rgba(255, 255, 255, 0.82);
   --hero-gradient:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 12rem),
-    linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
-  --focus-ring: rgba(37, 99, 235, 0.1);
+    linear-gradient(135deg, rgba(224, 242, 254, 0.95) 0%, rgba(204, 251, 241, 0.82) 54%, rgba(255, 255, 255, 0.96) 100%);
+  --focus-ring: rgba(20, 184, 166, 0.16);
   color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --primary: #60a5fa;
-  --primary-hover: #3b82f6;
-  --primary-light: rgba(96, 165, 250, 0.24);
-  --bg-color: #020817;
-  --card-bg: #0f172a;
-  --text-main: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --border: #243244;
-  --shadow: 0 10px 20px -10px rgb(2 6 23 / 0.8), 0 8px 16px -12px rgb(15 23 42 / 0.7);
-  --shadow-lg: 0 24px 48px -20px rgb(2 6 23 / 0.85), 0 16px 28px -20px rgb(15 23 42 / 0.75);
+  --primary: #7dd3fc;
+  --primary-hover: #38bdf8;
+  --primary-light: rgba(125, 211, 252, 0.2);
+  --primary-soft: #0f2f45;
+  --accent: #5eead4;
+  --accent-strong: #2dd4bf;
+  --accent-soft: #123d3a;
+  --bg-color: #06111f;
+  --card-bg: #0f1b2d;
+  --text-main: #eef6ff;
+  --text-secondary: #a9b9ca;
+  --text-muted: #74869b;
+  --border: #24384f;
+  --shadow: 0 18px 40px -26px rgb(0 0 0 / 0.9), 0 8px 18px -16px rgb(0 0 0 / 0.75);
+  --shadow-lg: 0 30px 70px -34px rgb(0 0 0 / 0.94), 0 16px 36px -28px rgb(0 0 0 / 0.82);
   --bg-gradient:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 24rem),
-    linear-gradient(180deg, #020817 0%, #0f172a 34%);
-  --sidebar-gradient: linear-gradient(180deg, #020617 0%, #111827 100%);
-  --sidebar-text: #cbd5e1;
-  --sidebar-muted: #94a3b8;
-  --sidebar-hover: rgba(148, 163, 184, 0.1);
-  --sidebar-border: rgba(51, 65, 85, 0.7);
-  --surface-elevated: rgba(15, 23, 42, 0.96);
-  --surface-card-start: rgba(15, 23, 42, 0.98);
-  --surface-card-end: rgba(17, 24, 39, 0.96);
-  --surface-panel-start: rgba(15, 23, 42, 0.98);
-  --surface-panel-end: rgba(10, 15, 27, 0.96);
-  --surface-subtle: #0b1220;
-  --surface-subtle-strong: #132033;
-  --surface-subtle-border: #233858;
-  --glass-bg: rgba(2, 6, 23, 0.78);
-  --glass-border: rgba(51, 65, 85, 0.85);
-  --settings-panel-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(17, 24, 39, 0.98) 100%);
-  --settings-panel-border: rgba(51, 65, 85, 0.95);
-  --settings-chip-bg: rgba(15, 23, 42, 0.86);
-  --settings-chip-border: rgba(59, 130, 246, 0.28);
-  --meta-badge-bg: #13294b;
-  --meta-badge-color: #93c5fd;
-  --meta-badge-border: #1d4ed8;
-  --table-head-bg: #132033;
-  --table-head-text: #cbd5e1;
+    linear-gradient(135deg, #06111f 0%, #0f2136 44%, #102e3a 100%);
+  --sidebar-gradient: linear-gradient(180deg, #050b14 0%, #0c1f35 56%, #0b3b42 100%);
+  --sidebar-text: #d6e5f4;
+  --sidebar-muted: #8ba1b8;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --surface-elevated: rgba(15, 27, 45, 0.88);
+  --surface-card-start: rgba(18, 33, 53, 0.94);
+  --surface-card-end: rgba(12, 25, 43, 0.9);
+  --surface-panel-start: rgba(15, 29, 49, 0.92);
+  --surface-panel-end: rgba(9, 21, 37, 0.9);
+  --surface-subtle: #0a1829;
+  --surface-subtle-strong: #112945;
+  --surface-subtle-border: #234664;
+  --glass-bg: rgba(8, 18, 32, 0.72);
+  --glass-border: rgba(63, 91, 123, 0.62);
+  --settings-panel-bg: linear-gradient(180deg, rgba(15, 29, 49, 0.92) 0%, rgba(8, 24, 38, 0.92) 100%);
+  --settings-panel-border: rgba(63, 91, 123, 0.62);
+  --settings-chip-bg: rgba(10, 24, 41, 0.78);
+  --settings-chip-border: rgba(61, 118, 147, 0.42);
+  --meta-badge-bg: #0b334a;
+  --meta-badge-color: #bae6fd;
+  --meta-badge-border: #17627f;
+  --table-head-bg: #10253d;
+  --table-head-text: #d1e0ef;
   --success-bg: #052e16;
   --success-border: #166534;
   --success-text: #86efac;
@@ -112,11 +119,10 @@
   --info-bg: #13294b;
   --info-text: #93c5fd;
   --overlay: rgba(2, 6, 23, 0.72);
-  --input-bg: #0b1220;
+  --input-bg: rgba(7, 18, 32, 0.84);
   --hero-gradient:
-    radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 12rem),
-    linear-gradient(135deg, #0f172a 0%, #111827 100%);
-  --focus-ring: rgba(96, 165, 250, 0.18);
+    linear-gradient(135deg, rgba(15, 47, 69, 0.96) 0%, rgba(18, 61, 58, 0.82) 58%, rgba(10, 24, 41, 0.96) 100%);
+  --focus-ring: rgba(94, 234, 212, 0.18);
   color-scheme: dark;
 }
 
@@ -135,14 +141,25 @@ body,
 body {
   font-family: var(--font);
   background-color: var(--bg-color);
+  background-image: var(--bg-gradient);
+  background-attachment: fixed;
   color: var(--text-main);
-  line-height: 1.5;
+  line-height: 1.55;
   min-height: 100dvh;
   overflow-x: hidden;
+  letter-spacing: 0;
 }
 
 input, button, select, textarea {
   font-family: inherit;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: 0;
 }
 
 .app-status-screen {

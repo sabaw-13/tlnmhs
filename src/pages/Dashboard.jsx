@@ -8,12 +8,15 @@ import {
   BookOpen,
   CalendarCheck,
   ClipboardCheck,
-  Database,
   GraduationCap,
+  Inbox,
   LayoutDashboard,
   LogOut,
   Menu,
-  Settings
+  School,
+  Settings,
+  UserCog,
+  Users
 } from "lucide-react";
 import AdminView from "./AdminView";
 import TeacherView from "./TeacherView";
@@ -59,14 +62,18 @@ const Dashboard = () => {
 
   const getSidebarItems = () => {
     const common = [
-      { path: "/dashboard", label: "Overview", icon: <LayoutDashboard size={20} /> }
+      { path: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={20} /> }
     ];
     const settingsItem = { path: "/dashboard/settings", label: "Settings", icon: <Settings size={20} /> };
 
     if (role === "admin") {
       return [
         ...common,
-        { path: "/dashboard/repository", label: "Repository", icon: <Database size={20} /> },
+        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
+        { path: "/dashboard/students", label: "Students", icon: <Users size={20} /> },
+        { path: "/dashboard/classes", label: "Classes", icon: <School size={20} /> },
+        { path: "/dashboard/teachers", label: "Teachers", icon: <UserCog size={20} /> },
+        { path: "/dashboard/parents", label: "Parents", icon: <Users size={20} /> },
         { path: "/dashboard/reports", label: "Reports", icon: <BarChart3 size={20} /> },
         settingsItem
       ];
@@ -75,8 +82,11 @@ const Dashboard = () => {
     if (role === "teacher") {
       return [
         ...common,
+        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
+        { path: "/dashboard/students", label: "Students", icon: <Users size={20} /> },
+        { path: "/dashboard/subjects", label: "Subjects", icon: <BookOpen size={20} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <CalendarCheck size={20} /> },
-        { path: "/dashboard/gradebook", label: "Gradebook", icon: <BookOpen size={20} /> },
+        { path: "/dashboard/gradebook", label: "Gradebook", icon: <ClipboardCheck size={20} /> },
         { path: "/dashboard/reports", label: "Reports", icon: <ClipboardCheck size={20} /> },
         settingsItem
       ];
@@ -85,6 +95,7 @@ const Dashboard = () => {
     if (role === "student") {
       return [
         ...common,
+        { path: "/dashboard/join-class", label: "Join Class", icon: <Inbox size={20} /> },
         { path: "/dashboard/grades", label: "My Grades", icon: <GraduationCap size={20} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={20} /> },
         settingsItem
@@ -94,6 +105,7 @@ const Dashboard = () => {
     if (role === "parent") {
       return [
         ...common,
+        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
         { path: "/dashboard/child-report", label: "Child Report", icon: <BookOpen size={20} /> },
         { path: "/dashboard/updates", label: "Updates", icon: <BellRing size={20} /> },
         settingsItem
@@ -108,15 +120,23 @@ const Dashboard = () => {
       case "admin":
         return (
           <>
-            <Route index element={<AdminView section="overview" />} />
-            <Route path="repository" element={<AdminView section="repository" />} />
+            <Route index element={<AdminView section="dashboard" />} />
+            <Route path="requests" element={<AdminView section="requests" />} />
+            <Route path="students" element={<AdminView section="students" />} />
+            <Route path="classes" element={<AdminView section="classes" />} />
+            <Route path="teachers" element={<AdminView section="teachers" />} />
+            <Route path="parents" element={<AdminView section="parents" />} />
+            <Route path="repository" element={<Navigate to="/dashboard/students" replace />} />
             <Route path="reports" element={<AdminView section="reports" />} />
           </>
         );
       case "teacher":
         return (
           <>
-            <Route index element={<TeacherView section="overview" />} />
+            <Route index element={<TeacherView section="dashboard" />} />
+            <Route path="requests" element={<TeacherView section="requests" />} />
+            <Route path="students" element={<TeacherView section="students" />} />
+            <Route path="subjects" element={<TeacherView section="subjects" />} />
             <Route path="attendance" element={<TeacherView section="attendance" />} />
             <Route path="gradebook" element={<TeacherView section="gradebook" />} />
             <Route path="reports" element={<TeacherView section="reports" />} />
@@ -125,7 +145,8 @@ const Dashboard = () => {
       case "student":
         return (
           <>
-            <Route index element={<StudentView section="overview" />} />
+            <Route index element={<StudentView section="dashboard" />} />
+            <Route path="join-class" element={<StudentView section="join" />} />
             <Route path="grades" element={<StudentView section="grades" />} />
             <Route path="attendance" element={<StudentView section="attendance" />} />
           </>
@@ -133,7 +154,8 @@ const Dashboard = () => {
       case "parent":
         return (
           <>
-            <Route index element={<ParentView section="overview" />} />
+            <Route index element={<ParentView section="dashboard" />} />
+            <Route path="requests" element={<ParentView section="requests" />} />
             <Route path="child-report" element={<ParentView section="report" />} />
             <Route path="updates" element={<ParentView section="updates" />} />
           </>

@@ -1,7 +1,7 @@
 import { adminAuth, adminDb } from "../_lib/firebaseAdmin.js";
 
 const MIN_PASSWORD_LENGTH = 6;
-const ALLOWED_ROLES = new Set(["student", "teacher"]);
+const ALLOWED_ROLES = new Set(["student", "teacher", "parent"]);
 
 const sendJson = (response, status, payload) => {
   response.status(status).json(payload);
@@ -60,8 +60,8 @@ const requireAdmin = async (request) => {
 };
 
 export default async function handler(request, response) {
-  if (!["POST", "PATCH"].includes(request.method)) {
-    response.setHeader("Allow", "POST, PATCH");
+  if (!["POST", "PATCH", "DELETE"].includes(request.method)) {
+    response.setHeader("Allow", "POST, PATCH, DELETE");
     return sendJson(response, 405, { error: "Method not allowed." });
   }
 
@@ -78,7 +78,7 @@ export default async function handler(request, response) {
       const password = validatePassword(body.password);
 
       if (!ALLOWED_ROLES.has(role)) {
-        return sendJson(response, 400, { error: "Only student and teacher accounts can be created here." });
+        return sendJson(response, 400, { error: "Only student, teacher, and parent accounts can be created here." });
       }
 
       if (!email) {
@@ -100,6 +100,23 @@ export default async function handler(request, response) {
     }
 
     const uid = String(body.uid || "").trim();
+
+    if (request.method === "DELETE") {
+      if (!uid) {
+        return sendJson(response, 400, { error: "User ID is required." });
+      }
+
+      try {
+        await authService.deleteUser(uid);
+      } catch (error) {
+        if (error?.code !== "auth/user-not-found") {
+          throw error;
+        }
+      }
+
+      return sendJson(response, 200, { uid, deleted: true });
+    }
+
     const updates = {};
 
     if (!uid) {

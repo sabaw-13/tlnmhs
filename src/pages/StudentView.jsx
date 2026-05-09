@@ -1,19 +1,101 @@
-import React from "react";
+import React, { useState } from "react";
+import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
 
 const StudentView = ({ section = "overview" }) => {
-  const { currentStudent, loading, error } = useSchoolData();
+  const { currentUser } = useAuth();
+  const {
+    classes,
+    currentStudent,
+    loading,
+    error,
+    requestClassJoin
+  } = useSchoolData();
+  const [classCode, setClassCode] = useState("");
+  const [joinFeedback, setJoinFeedback] = useState(null);
+  const [joiningClass, setJoiningClass] = useState(false);
+  const isDashboardSection = section === "dashboard" || section === "overview";
+
+  const pendingRequest = classes
+    .map((classroom) => ({
+      className: classroom.name || classroom.section || "Class",
+      classCode: classroom.classCode || classroom.id,
+      request: classroom.joinRequests?.[currentUser?.uid]
+    }))
+    .find((item) => item.request?.status === "pending");
+
+  const handleJoinClass = async (event) => {
+    event.preventDefault();
+    setJoiningClass(true);
+    setJoinFeedback(null);
+
+    try {
+      const classroom = await requestClassJoin(classCode);
+      setClassCode("");
+      setJoinFeedback({
+        type: "success",
+        message: `Request sent to ${classroom.name || classroom.section || "class"}.`
+      });
+    } catch (joinError) {
+      setJoinFeedback({
+        type: "error",
+        message: joinError?.message || "Class request could not be sent."
+      });
+    } finally {
+      setJoiningClass(false);
+    }
+  };
+
+  const renderClassCodePanel = () => (
+    <form className="panel" onSubmit={handleJoinClass}>
+      <div className="panel-header">
+        <h3>Join a Class</h3>
+        {pendingRequest && <span className="meta-badge">Pending</span>}
+      </div>
+      {pendingRequest ? (
+        <p className="muted-text">
+          Your request for {pendingRequest.className} is waiting for teacher approval.
+        </p>
+      ) : (
+        <>
+          {joinFeedback && (
+            <div className={joinFeedback.type === "error" ? "error-banner compact" : "success-banner compact"}>
+              {joinFeedback.message}
+            </div>
+          )}
+          <div className="join-code-row">
+            <label className="selector-field">
+              <span>Class Code</span>
+              <input
+                type="text"
+                value={classCode}
+                onChange={(event) => setClassCode(event.target.value.toUpperCase())}
+                placeholder="Enter code"
+                required
+              />
+            </label>
+            <button type="submit" className="primary-btn" disabled={joiningClass}>
+              {joiningClass ? "Sending..." : "Request Join"}
+            </button>
+          </div>
+        </>
+      )}
+    </form>
+  );
 
   if (loading) return <div className="loading-container">Loading academic records...</div>;
   if (error) return <div className="error-container">{error}</div>;
   if (!currentStudent) {
     return (
-      <div className="empty-state">
-        <h3>No student record found</h3>
-        <p>Link this account to a student entry in Firebase under <code>students</code> to unlock live reports.</p>
+      <div className="student-view">
+        {section === "join" && renderClassCodePanel()}
+        <div className="empty-state">
+          <h3>No student record found</h3>
+          <p>Use Join Class to enter your class code and wait for teacher approval.</p>
+        </div>
       </div>
     );
   }
@@ -24,7 +106,9 @@ const StudentView = ({ section = "overview" }) => {
 
   return (
     <div className="student-view">
-      {section === "overview" && (
+      {section === "join" && renderClassCodePanel()}
+
+      {isDashboardSection && (
         <div className="stats-grid">
           <div className="stat-card">
             <h4>Current GPA</h4>
@@ -41,7 +125,7 @@ const StudentView = ({ section = "overview" }) => {
         </div>
       )}
 
-      {section === "overview" && (
+      {isDashboardSection && (
         <>
           <div className="insight-grid">
             <div className="panel">
@@ -115,8 +199,13 @@ const StudentView = ({ section = "overview" }) => {
               <tr>
                 <th>Subject</th>
                 <th>Teacher</th>
+                <th>Activities</th>
+                <th>Quizzes</th>
+                <th>Exams</th>
                 <th>Quarter 1</th>
                 <th>Quarter 2</th>
+                <th>Quarter 3</th>
+                <th>Quarter 4</th>
                 <th>Final Grade</th>
                 <th>Status</th>
               </tr>
@@ -126,15 +215,20 @@ const StudentView = ({ section = "overview" }) => {
                 <tr key={subject.id}>
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
+                  <td data-label="Activities">{subject.activities ?? "N/A"}</td>
+                  <td data-label="Quizzes">{subject.quizzes ?? "N/A"}</td>
+                  <td data-label="Exams">{subject.exams ?? "N/A"}</td>
                   <td data-label="Quarter 1">{subject.q1 ?? "N/A"}</td>
                   <td data-label="Quarter 2">{subject.q2 ?? "N/A"}</td>
+                  <td data-label="Quarter 3">{subject.q3 ?? "N/A"}</td>
+                  <td data-label="Quarter 4">{subject.q4 ?? "N/A"}</td>
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
                   <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
               {currentStudent.subjects.length === 0 && (
                 <tr>
-                  <td colSpan="6">No grade records available yet.</td>
+                  <td colSpan="11">No grade records available yet.</td>
                 </tr>
               )}
             </tbody>

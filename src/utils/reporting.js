@@ -18,10 +18,45 @@ const slugify = (value) => {
     .replace(/^-|-$/g, "");
 };
 
+const normalizeScoreList = (value) => {
+  const normalizeScoreEntry = (score) => {
+    if (typeof score === "string" && !score.trim()) return "";
+
+    const parsedScore = toNumber(score);
+    return Number.isFinite(parsedScore) ? parsedScore : "";
+  };
+  const trimTrailingBlanks = (scores) => {
+    const nextScores = [...scores];
+
+    while (nextScores.length && nextScores[nextScores.length - 1] === "") {
+      nextScores.pop();
+    }
+
+    return nextScores;
+  };
+
+  if (Array.isArray(value)) {
+    return trimTrailingBlanks(value.map(normalizeScoreEntry));
+  }
+
+  if (value && typeof value === "object") {
+    return trimTrailingBlanks(Object.values(value).map(normalizeScoreEntry));
+  }
+
+  const score = toNumber(value);
+  return Number.isFinite(score) ? [score] : [];
+};
+
 export const toNumber = (value) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
-    const parsed = Number(value.replace(/[^0-9.-]/g, ""));
+    const normalizedValue = value.trim();
+    if (!normalizedValue) return null;
+
+    const numericValue = normalizedValue.replace(/[^0-9.-]/g, "");
+    if (!numericValue || numericValue === "-" || numericValue === "." || numericValue === "-.") return null;
+
+    const parsed = Number(numericValue);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
@@ -69,6 +104,9 @@ export const normalizeSubjects = (subjectSource, fallbackTeacher = "") => {
       const q2 = toNumber(subject.q2 ?? subject.quarter2 ?? subject.midterm);
       const q3 = toNumber(subject.q3 ?? subject.quarter3 ?? subject.prefinal);
       const q4 = toNumber(subject.q4 ?? subject.quarter4 ?? subject.final);
+      const activities = normalizeScoreList(subject.activities ?? subject.activityScore ?? subject.activity);
+      const quizzes = normalizeScoreList(subject.quizzes ?? subject.quizScore ?? subject.quiz);
+      const exams = normalizeScoreList(subject.exams ?? subject.examScore ?? subject.exam);
       const finalGrade = toNumber(subject.finalGrade ?? subject.grade ?? subject.average)
         ?? average([q1, q2, q3, q4]);
 
@@ -76,6 +114,9 @@ export const normalizeSubjects = (subjectSource, fallbackTeacher = "") => {
         id: subject.id || key || slugify(subject.name),
         name: subject.name || subject.subject || "Untitled Subject",
         teacher: subject.teacher || fallbackTeacher || "Teacher not assigned",
+        activities,
+        quizzes,
+        exams,
         q1,
         q2,
         q3,
@@ -146,6 +187,7 @@ export const buildStudentRecord = ({ student, users, classes }) => {
   const attendanceLabel = attendanceRate === null ? "N/A" : `${attendanceRate}%`;
   const performanceStatus = student.performanceStatus || computePerformanceStatus({ gpa, attendanceRate, subjects });
   const className = linkedClass?.name || linkedClass?.section || student.section || student.className || "Unassigned Class";
+  const gradeLevel = linkedClass?.gradeLevel || student.gradeLevel || linkedUser.gradeLevel || "";
   const updatedAt = student.updatedAt || student.lastUpdated || student.modifiedAt || "";
   const teacherRemarks = student.teacherRemarks || student.remarks || "";
 
@@ -169,6 +211,7 @@ export const buildStudentRecord = ({ student, users, classes }) => {
     studentNumber: student.studentNumber || student.studentIdNumber || student.lrn || linkedUser.studentNumber || "",
     parentId: student.parentId || linkedUser.parentId || null,
     parentName: student.parentName || linkedUser.parentName || "",
+    gradeLevel,
     classId: linkedClass?.id || classId,
     className,
     strand: linkedClass?.strand || student.strand || "",
