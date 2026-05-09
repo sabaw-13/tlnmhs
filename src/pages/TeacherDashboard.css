@@ -111,13 +111,14 @@
   display: inline-flex;
   align-items: center;
   min-height: 2rem;
+  max-width: 220px;
   padding: 0.35rem 0.62rem;
   border-radius: 999px;
   background: var(--primary-light);
   color: var(--primary);
   font-size: 0.78rem;
   font-weight: 850;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .record-badge.muted {
@@ -1209,6 +1210,14 @@
 
   .data-table td > * {
     min-width: 0;
+  }
+
+  .student-records-table .table-actions {
+    min-width: 0;
+  }
+
+  .record-badge {
+    max-width: 100%;
   }
 
   .data-table .secondary-btn,

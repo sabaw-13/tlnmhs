@@ -30,6 +30,7 @@
 }
 
 .mobile-nav-btn,
+.sidebar-close-btn,
 .sidebar-backdrop {
   display: none;
 }
@@ -175,7 +176,8 @@
 }
 
 .icon-btn,
-.mobile-nav-btn {
+.mobile-nav-btn,
+.sidebar-close-btn {
   background: var(--surface-elevated);
   border: 1px solid var(--border);
   color: var(--text-secondary);
@@ -183,14 +185,36 @@
 }
 
 .icon-btn:hover,
-.mobile-nav-btn:hover {
+.mobile-nav-btn:hover,
+.sidebar-close-btn:hover {
   transform: translateY(-1px);
 }
 
 .icon-btn:hover,
-.mobile-nav-btn:hover {
+.mobile-nav-btn:hover,
+.sidebar-close-btn:hover {
   background-color: var(--surface-subtle);
   border-color: var(--meta-badge-border);
+}
+
+.mobile-nav-btn,
+.sidebar-close-btn {
+  align-items: center;
+  justify-content: center;
+  width: 2.65rem;
+  height: 2.65rem;
+  padding: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: transform 0.2s, background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.sidebar-close-btn {
+  color: white;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
 }
 
 .settings-btn.active {
@@ -303,10 +327,15 @@
     transform: translateX(-100%);
     transition: transform 0.25s ease;
     box-shadow: var(--shadow-lg);
+    z-index: 40;
   }
 
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  .sidebar-close-btn {
+    display: inline-flex;
   }
 
   .sidebar-backdrop {
@@ -319,7 +348,7 @@
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.25s ease, visibility 0.25s ease;
-    z-index: 15;
+    z-index: 30;
   }
 
   .sidebar-backdrop.visible {
@@ -375,5 +404,7 @@
 
   .sidebar {
     width: min(88vw, 320px);
+    padding-top: max(1.1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 }

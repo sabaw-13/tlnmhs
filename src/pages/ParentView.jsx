@@ -4,6 +4,13 @@ import { useSchoolData } from "../context/SchoolDataContext";
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
+const formatScoreList = (scores) => {
+  if (!Array.isArray(scores) || !scores.length) return "N/A";
+
+  return scores
+    .map((score, index) => `${index + 1}: ${score === "" || score === null || score === undefined ? "-" : score}`)
+    .join(", ");
+};
 
 const ParentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -272,9 +279,9 @@ const ParentView = ({ section = "overview" }) => {
                 <tr key={subject.id}>
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
-                  <td data-label="Activities">{subject.activities ?? "N/A"}</td>
-                  <td data-label="Quizzes">{subject.quizzes ?? "N/A"}</td>
-                  <td data-label="Exams">{subject.exams ?? "N/A"}</td>
+                  <td data-label="Activities">{formatScoreList(subject.activities)}</td>
+                  <td data-label="Quizzes">{formatScoreList(subject.quizzes)}</td>
+                  <td data-label="Exams">{formatScoreList(subject.exams)}</td>
                   <td data-label="Q1">{subject.q1 ?? "N/A"}</td>
                   <td data-label="Q2">{subject.q2 ?? "N/A"}</td>
                   <td data-label="Q3">{subject.q3 ?? "N/A"}</td>

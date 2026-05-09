@@ -16,7 +16,8 @@ import {
   School,
   Settings,
   UserCog,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import AdminView from "./AdminView";
 import TeacherView from "./TeacherView";
@@ -46,6 +47,20 @@ const Dashboard = () => {
     return () => {
       document.body.style.overflow = "";
     };
+  }, [isSidebarOpen]);
+
+  useEffect(() => {
+    if (!isSidebarOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isSidebarOpen]);
 
   const handleLogout = async () => {
@@ -176,7 +191,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="dashboard-container">
+    <div className={`dashboard-container${isSidebarOpen ? " menu-open" : ""}`}>
       <button
         className={`sidebar-backdrop${isSidebarOpen ? " visible" : ""}`}
         type="button"
@@ -184,12 +199,20 @@ const Dashboard = () => {
         onClick={() => setIsSidebarOpen(false)}
       />
 
-      <aside className={`sidebar${isSidebarOpen ? " open" : ""}`}>
+      <aside id="dashboard-sidebar" className={`sidebar${isSidebarOpen ? " open" : ""}`}>
         <div className="sidebar-topbar">
           <div className="sidebar-header">
             <h2>TLNMHS</h2>
             <span>{roleLabel}</span>
           </div>
+          <button
+            className="sidebar-close-btn"
+            type="button"
+            aria-label="Close navigation menu"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <X size={20} />
+          </button>
         </div>
         <nav className="sidebar-nav">
           {getSidebarItems().map((item) => (
@@ -217,6 +240,8 @@ const Dashboard = () => {
               className="mobile-nav-btn"
               type="button"
               aria-label="Open navigation menu"
+              aria-controls="dashboard-sidebar"
+              aria-expanded={isSidebarOpen}
               onClick={() => setIsSidebarOpen(true)}
             >
               <Menu size={20} />
