@@ -1,10 +1,19 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
-import { push, ref, set } from "firebase/database";
+import { get, push, ref, set } from "firebase/database";
 import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase";
 import "./Login.css";
+
+const normalizeLookupValue = (value) => String(value || "").trim().toLowerCase();
+
+const getStudentNumberCandidates = (student) => [
+  student?.studentNumber,
+  student?.studentIdNumber,
+  student?.lrn,
+  student?.idNumber
+].map(normalizeLookupValue).filter(Boolean);
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -12,7 +21,8 @@ const Login = () => {
   const [parentRequest, setParentRequest] = useState({
     name: "",
     email: "",
-    password: ""
+    password: "",
+    studentNumber: ""
   });
   const [showParentRequest, setShowParentRequest] = useState(false);
   const [requestMessage, setRequestMessage] = useState(null);
@@ -37,7 +47,9 @@ const Login = () => {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(payload.error || "Parent account request could not be sent.");
+      const error = new Error(payload.error || "Parent account request could not be sent.");
+      error.status = response.status;
+      throw error;
     }
     if (!payload.id && payload.status !== "pending") {
       throw new Error("Parent account request could not be sent.");
@@ -46,13 +58,30 @@ const Login = () => {
     return payload;
   };
 
-  const submitParentRequestDirectly = async ({ name, email, password }) => {
+  const verifyStudentNumberExists = async (studentNumber) => {
+    const normalizedStudentNumber = normalizeLookupValue(studentNumber);
+    if (!normalizedStudentNumber) return false;
+
+    const studentsSnapshot = await get(ref(db, "students"));
+    const students = studentsSnapshot.val() || {};
+
+    return Object.values(students).some((student) => (
+      getStudentNumberCandidates(student).includes(normalizedStudentNumber)
+    ));
+  };
+
+  const submitParentRequestDirectly = async ({ name, email, password, studentNumber }) => {
+    if (!(await verifyStudentNumberExists(studentNumber))) {
+      throw new Error("Student ID must match an existing student record.");
+    }
+
     const requestRef = push(ref(db, "parentAccountRequests"));
 
     await set(requestRef, {
       name,
       email,
       password,
+      studentNumber,
       status: "pending",
       requestedAt: new Date().toISOString()
     });
@@ -72,15 +101,21 @@ const Login = () => {
       const trimmedName = parentRequest.name.trim();
       const trimmedEmail = parentRequest.email.trim();
       const trimmedPassword = parentRequest.password.trim();
+      const trimmedStudentNumber = parentRequest.studentNumber.trim();
 
       if (trimmedPassword.length < 6) {
         throw new Error("Password must be at least 6 characters long.");
       }
 
+      if (!trimmedStudentNumber) {
+        throw new Error("Student ID is required.");
+      }
+
       const requestPayload = {
         name: trimmedName,
         email: trimmedEmail,
-        password: trimmedPassword
+        password: trimmedPassword,
+        studentNumber: trimmedStudentNumber
       };
 
       try {
@@ -91,11 +126,15 @@ const Login = () => {
           },
           body: JSON.stringify(requestPayload)
         }));
-      } catch {
+      } catch (apiError) {
+        if (apiError?.status && apiError.status < 500) {
+          throw apiError;
+        }
+
         await submitParentRequestDirectly(requestPayload);
       }
 
-      setParentRequest({ name: "", email: "", password: "" });
+      setParentRequest({ name: "", email: "", password: "", studentNumber: "" });
       setRequestMessage({
         type: "success",
         text: "Parent account request sent. Wait for admin approval before logging in."
@@ -188,6 +227,16 @@ const Login = () => {
                 value={parentRequest.password}
                 onChange={(event) => setParentRequest({ ...parentRequest, password: event.target.value })}
                 placeholder="At least 6 characters"
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Student ID</label>
+              <input
+                type="text"
+                value={parentRequest.studentNumber}
+                onChange={(event) => setParentRequest({ ...parentRequest, studentNumber: event.target.value })}
+                placeholder="Enter linked student ID"
                 required
               />
             </div>

@@ -2,6 +2,32 @@ import React, { useEffect, useState } from "react";
 import ConfirmDialog from "./ConfirmDialog";
 
 const GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"];
+const QUARTER_OPTIONS = [
+  { key: "q1", label: "Q1" },
+  { key: "q2", label: "Q2" },
+  { key: "q3", label: "Q3" },
+  { key: "q4", label: "Q4" }
+];
+const createEmptyQuarters = () => QUARTER_OPTIONS.reduce((quarters, quarter) => ({
+  ...quarters,
+  [quarter.key]: {
+    activities: "",
+    quizzes: "",
+    exams: ""
+  }
+}), {});
+const formatScoreInputValue = (value) => Array.isArray(value) ? value.join(", ") : value ?? "";
+const hasSubjectValue = (subject) => {
+  return Object.entries(subject).some(([key, value]) => {
+    if (key === "quarters" && value && typeof value === "object") {
+      return Object.values(value).some((quarter) => (
+        quarter && typeof quarter === "object" && Object.values(quarter).some(Boolean)
+      ));
+    }
+
+    return Boolean(value);
+  });
+};
 
 export const createEmptySubject = () => ({
   id: "",
@@ -10,6 +36,7 @@ export const createEmptySubject = () => ({
   activities: "",
   quizzes: "",
   exams: "",
+  quarters: createEmptyQuarters(),
   q1: "",
   q2: "",
   q3: "",
@@ -38,12 +65,24 @@ const buildInitialFormState = ({
   teacherRemarks: student?.teacherRemarks || "",
   subjects: student?.subjects?.length
     ? student.subjects.map((subject) => ({
+      quarters: QUARTER_OPTIONS.reduce((quarters, quarter, index) => {
+        const savedQuarter = subject.quarters?.[quarter.key] || {};
+
+        return {
+          ...quarters,
+          [quarter.key]: {
+            activities: formatScoreInputValue(savedQuarter.activities ?? (index === 0 ? subject.activities : "")),
+            quizzes: formatScoreInputValue(savedQuarter.quizzes ?? (index === 0 ? subject.quizzes : "")),
+            exams: formatScoreInputValue(savedQuarter.exams ?? (index === 0 ? subject.exams : ""))
+          }
+        };
+      }, {}),
       id: subject.id,
       name: subject.name,
       teacher: subject.teacher,
-      activities: subject.activities ?? "",
-      quizzes: subject.quizzes ?? "",
-      exams: subject.exams ?? "",
+      activities: formatScoreInputValue(subject.quarters?.q1?.activities ?? subject.activities),
+      quizzes: formatScoreInputValue(subject.quarters?.q1?.quizzes ?? subject.quizzes),
+      exams: formatScoreInputValue(subject.quarters?.q1?.exams ?? subject.exams),
       q1: subject.q1 ?? "",
       q2: subject.q2 ?? "",
       q3: subject.q3 ?? "",
@@ -71,15 +110,23 @@ const normalizeStudentFormState = (formState) => ({
       id: subject.id.trim(),
       name: subject.name.trim(),
       teacher: subject.teacher.trim(),
-      activities: `${subject.activities}`.trim(),
-      quizzes: `${subject.quizzes}`.trim(),
-      exams: `${subject.exams}`.trim(),
+      quarters: QUARTER_OPTIONS.reduce((quarters, quarter) => ({
+        ...quarters,
+        [quarter.key]: {
+          activities: `${subject.quarters?.[quarter.key]?.activities || ""}`.trim(),
+          quizzes: `${subject.quarters?.[quarter.key]?.quizzes || ""}`.trim(),
+          exams: `${subject.quarters?.[quarter.key]?.exams || ""}`.trim()
+        }
+      }), {}),
+      activities: `${subject.quarters?.q1?.activities || subject.activities || ""}`.trim(),
+      quizzes: `${subject.quarters?.q1?.quizzes || subject.quizzes || ""}`.trim(),
+      exams: `${subject.quarters?.q1?.exams || subject.exams || ""}`.trim(),
       q1: `${subject.q1}`.trim(),
       q2: `${subject.q2}`.trim(),
       q3: `${subject.q3}`.trim(),
       q4: `${subject.q4}`.trim()
     }))
-    .filter((subject) => Object.values(subject).some(Boolean))
+    .filter(hasSubjectValue)
 });
 
 const StudentRecordModal = ({
@@ -138,6 +185,26 @@ const StudentRecordModal = ({
       ...previous,
       subjects: previous.subjects.map((subject, subjectIndex) => (
         subjectIndex === index ? { ...subject, [field]: value } : subject
+      ))
+    }));
+  };
+
+  const updateSubjectQuarterField = (index, quarterKey, field, value) => {
+    setFormData((previous) => ({
+      ...previous,
+      subjects: previous.subjects.map((subject, subjectIndex) => (
+        subjectIndex === index
+          ? {
+            ...subject,
+            quarters: {
+              ...(subject.quarters || createEmptyQuarters()),
+              [quarterKey]: {
+                ...(subject.quarters?.[quarterKey] || {}),
+                [field]: value
+              }
+            }
+          }
+          : subject
       ))
     }));
   };
@@ -260,7 +327,7 @@ const StudentRecordModal = ({
 
             {showClassSelector && (
               <div className="form-group">
-                <label>Class</label>
+                <label>Section</label>
                 <select
                   value={formData.classId}
                   onChange={(event) => {
@@ -274,7 +341,7 @@ const StudentRecordModal = ({
                   }}
                   required
                 >
-                  <option value="">Select class</option>
+                  <option value="">Select section</option>
                   {classOptions.map((classroom) => (
                     <option key={classroom.id} value={classroom.id}>
                       {classroom.name || classroom.section || classroom.id}
@@ -310,7 +377,7 @@ const StudentRecordModal = ({
                     value={formData.teacherId}
                     onChange={(event) => setFormData({ ...formData, teacherId: event.target.value })}
                   >
-                    <option value="">Use class teacher</option>
+                    <option value="">Use section adviser</option>
                     {teacherOptions.map((teacher) => (
                       <option key={teacher.id} value={teacher.id}>
                         {teacher.name}
@@ -395,48 +462,29 @@ const StudentRecordModal = ({
                       placeholder="Teacher"
                       onChange={(event) => updateSubjectField(index, "teacher", event.target.value)}
                     />
-                    <input
-                      type="number"
-                      value={subject.activities}
-                      placeholder="Activities"
-                      onChange={(event) => updateSubjectField(index, "activities", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.quizzes}
-                      placeholder="Quizzes"
-                      onChange={(event) => updateSubjectField(index, "quizzes", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.exams}
-                      placeholder="Exams"
-                      onChange={(event) => updateSubjectField(index, "exams", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q1}
-                      placeholder="Q1"
-                      onChange={(event) => updateSubjectField(index, "q1", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q2}
-                      placeholder="Q2"
-                      onChange={(event) => updateSubjectField(index, "q2", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q3}
-                      placeholder="Q3"
-                      onChange={(event) => updateSubjectField(index, "q3", event.target.value)}
-                    />
-                    <input
-                      type="number"
-                      value={subject.q4}
-                      placeholder="Q4"
-                      onChange={(event) => updateSubjectField(index, "q4", event.target.value)}
-                    />
+                    {QUARTER_OPTIONS.flatMap((quarter) => [
+                      <input
+                        key={`${quarter.key}-activities`}
+                        type="text"
+                        value={subject.quarters?.[quarter.key]?.activities || ""}
+                        placeholder={`${quarter.label} Activities`}
+                        onChange={(event) => updateSubjectQuarterField(index, quarter.key, "activities", event.target.value)}
+                      />,
+                      <input
+                        key={`${quarter.key}-quizzes`}
+                        type="text"
+                        value={subject.quarters?.[quarter.key]?.quizzes || ""}
+                        placeholder={`${quarter.label} Quizzes`}
+                        onChange={(event) => updateSubjectQuarterField(index, quarter.key, "quizzes", event.target.value)}
+                      />,
+                      <input
+                        key={`${quarter.key}-exams`}
+                        type="text"
+                        value={subject.quarters?.[quarter.key]?.exams || ""}
+                        placeholder={`${quarter.label} Exams`}
+                        onChange={(event) => updateSubjectQuarterField(index, quarter.key, "exams", event.target.value)}
+                      />
+                    ])}
                     {formData.subjects.length > 1 && (
                       <button type="button" className="text-btn" onClick={() => removeSubjectRow(index)}>
                         Remove

@@ -19,7 +19,7 @@ const SettingsView = () => {
           <p>{teacherUsers.length}</p>
         </div>
         <div className="stat-card">
-          <h4>Classes</h4>
+          <h4>Sections</h4>
           <p>{classes.length}</p>
         </div>
       </div>

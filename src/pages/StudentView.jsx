@@ -11,6 +11,23 @@ const formatScoreList = (scores) => {
     .map((score, index) => `${index + 1}: ${score === "" || score === null || score === undefined ? "-" : score}`)
     .join(", ");
 };
+const QUARTER_OPTIONS = [
+  { key: "q1", label: "Q1" },
+  { key: "q2", label: "Q2" },
+  { key: "q3", label: "Q3" },
+  { key: "q4", label: "Q4" }
+];
+const formatQuarterScores = (subject, quarterKey) => {
+  const quarterScores = subject.quarters?.[quarterKey] || {};
+
+  return [
+    `Quiz ${formatScoreList(quarterScores.writtenWork?.quizzes ?? quarterScores.quizzes)}`,
+    `Long Test ${formatScoreList(quarterScores.writtenWork?.longTests)}`,
+    `Project ${formatScoreList(quarterScores.performanceTask?.projects)}`,
+    `Activity ${formatScoreList(quarterScores.performanceTask?.activities ?? quarterScores.activities)}`,
+    `Final Exam ${formatScoreList(quarterScores.finalExam?.exams ?? quarterScores.exams)}`
+  ].join(" | ");
+};
 
 const StudentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -28,7 +45,7 @@ const StudentView = ({ section = "overview" }) => {
 
   const pendingRequest = classes
     .map((classroom) => ({
-      className: classroom.name || classroom.section || "Class",
+      className: classroom.name || classroom.section || "Section",
       classCode: classroom.classCode || classroom.id,
       request: classroom.joinRequests?.[currentUser?.uid]
     }))
@@ -44,12 +61,12 @@ const StudentView = ({ section = "overview" }) => {
       setClassCode("");
       setJoinFeedback({
         type: "success",
-        message: `Request sent to ${classroom.name || classroom.section || "class"}.`
+        message: `Request sent to ${classroom.name || classroom.section || "section"}.`
       });
     } catch (joinError) {
       setJoinFeedback({
         type: "error",
-        message: joinError?.message || "Class request could not be sent."
+        message: joinError?.message || "Section request could not be sent."
       });
     } finally {
       setJoiningClass(false);
@@ -59,7 +76,7 @@ const StudentView = ({ section = "overview" }) => {
   const renderClassCodePanel = () => (
     <form className="panel" onSubmit={handleJoinClass}>
       <div className="panel-header">
-        <h3>Join a Class</h3>
+        <h3>Join a Section</h3>
         {pendingRequest && <span className="meta-badge">Pending</span>}
       </div>
       {pendingRequest ? (
@@ -75,7 +92,7 @@ const StudentView = ({ section = "overview" }) => {
           )}
           <div className="join-code-row">
             <label className="selector-field">
-              <span>Class Code</span>
+              <span>Section Code</span>
               <input
                 type="text"
                 value={classCode}
@@ -101,7 +118,7 @@ const StudentView = ({ section = "overview" }) => {
         {section === "join" && renderClassCodePanel()}
         <div className="empty-state">
           <h3>No student record found</h3>
-          <p>Use Join Class to enter your class code and wait for teacher approval.</p>
+          <p>Use Join Section to enter your section code and wait for teacher approval.</p>
         </div>
       </div>
     );
@@ -206,14 +223,12 @@ const StudentView = ({ section = "overview" }) => {
               <tr>
                 <th>Subject</th>
                 <th>Teacher</th>
-                <th>Activities</th>
-                <th>Quizzes</th>
-                <th>Exams</th>
-                <th>Quarter 1</th>
-                <th>Quarter 2</th>
-                <th>Quarter 3</th>
-                <th>Quarter 4</th>
+                <th>Q1 Scores</th>
+                <th>Q2 Scores</th>
+                <th>Q3 Scores</th>
+                <th>Q4 Scores</th>
                 <th>Final Grade</th>
+                <th>Attendance</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -222,20 +237,17 @@ const StudentView = ({ section = "overview" }) => {
                 <tr key={subject.id}>
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
-                  <td data-label="Activities">{formatScoreList(subject.activities)}</td>
-                  <td data-label="Quizzes">{formatScoreList(subject.quizzes)}</td>
-                  <td data-label="Exams">{formatScoreList(subject.exams)}</td>
-                  <td data-label="Quarter 1">{subject.q1 ?? "N/A"}</td>
-                  <td data-label="Quarter 2">{subject.q2 ?? "N/A"}</td>
-                  <td data-label="Quarter 3">{subject.q3 ?? "N/A"}</td>
-                  <td data-label="Quarter 4">{subject.q4 ?? "N/A"}</td>
+                  {QUARTER_OPTIONS.map((quarter) => (
+                    <td key={quarter.key} data-label={`${quarter.label} Scores`}>{formatQuarterScores(subject, quarter.key)}</td>
+                  ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
+                  <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
                   <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
               {currentStudent.subjects.length === 0 && (
                 <tr>
-                  <td colSpan="11">No grade records available yet.</td>
+                  <td colSpan="9">No grade records available yet.</td>
                 </tr>
               )}
             </tbody>
@@ -251,6 +263,24 @@ const StudentView = ({ section = "overview" }) => {
               <div className="progress-fill" style={{ width: `${currentStudent.attendanceRate || 0}%` }} />
             </div>
             <p className="mt-4">Current attendance: <strong>{currentStudent.attendanceLabel}</strong></p>
+            {currentStudent.subjects.length > 0 && (
+              <table className="data-table mt-4">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Attendance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentStudent.subjects.map((subject) => (
+                    <tr key={subject.id}>
+                      <td data-label="Subject">{subject.name}</td>
+                      <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
 
           <div className="panel">

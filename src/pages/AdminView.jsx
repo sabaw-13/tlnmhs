@@ -200,6 +200,20 @@ const AdminView = ({ section = "overview" }) => {
   const atRiskStudents = students.filter((student) => student.performanceStatus === "Needs Support");
   const pendingParentAccountRequests = parentAccountRequests.filter((request) => request.status === "pending");
   const pendingParentStudentAccessRequests = parentStudentAccessRequests.filter((request) => request.status === "pending");
+  const pendingRequests = [
+    ...pendingParentAccountRequests.map((request) => ({
+      ...request,
+      requestType: "parent-account",
+      requestLabel: "Parent Account",
+      requestedAtValue: request.requestedAt || request.createdAt || ""
+    })),
+    ...pendingParentStudentAccessRequests.map((request) => ({
+      ...request,
+      requestType: "student-access",
+      requestLabel: "Student Access",
+      requestedAtValue: request.requestedAt || request.createdAt || ""
+    }))
+  ].sort((left, right) => new Date(right.requestedAtValue || 0) - new Date(left.requestedAtValue || 0));
   const selectedClass = classReports.find((classroom) => classroom.id === selectedClassId) || classReports[0] || null;
   const selectedClassTeacher = selectedClass?.teacherName || selectedClass?.adviserName || selectedClass?.teacherEmail || selectedClass?.adviserEmail || "Unassigned";
   const studentSearchTerm = studentSearch.trim().toLowerCase();
@@ -398,12 +412,12 @@ const AdminView = ({ section = "overview" }) => {
       setShowClassForm(false);
       setFeedback({
         type: "success",
-        message: editingClassId ? "Class updated." : "Class added."
+        message: editingClassId ? "Section updated." : "Section added."
       });
     } catch (saveError) {
       setFeedback({
         type: "error",
-        message: saveError?.message || "Class could not be saved."
+        message: saveError?.message || "Section could not be saved."
       });
     }
   };
@@ -553,7 +567,7 @@ const AdminView = ({ section = "overview" }) => {
               <strong>{orphanStudents.length}</strong>
             </div>
             <div>
-              <span>Classes Needing Adviser</span>
+              <span>Sections Needing Adviser</span>
               <strong>{classesWithoutTeacher.length}</strong>
             </div>
           </div>
@@ -565,7 +579,7 @@ const AdminView = ({ section = "overview" }) => {
           <div className="stat-card"><h4>Total Teachers</h4><p>{repositorySummary.teachers}</p></div>
           <div className="stat-card"><h4>Total Students</h4><p>{repositorySummary.students}</p></div>
           <div className="stat-card"><h4>Total Parents</h4><p>{repositorySummary.parents}</p></div>
-          <div className="stat-card"><h4>Total Classes</h4><p>{repositorySummary.classes}</p></div>
+          <div className="stat-card"><h4>Total Sections</h4><p>{repositorySummary.classes}</p></div>
         </div>
       )}
 
@@ -575,7 +589,7 @@ const AdminView = ({ section = "overview" }) => {
             <h3>Academic Snapshot</h3>
             <div className="report-strip">
               <div>
-                <span>Students with Class</span>
+                <span>Students with Section</span>
                 <strong>{repositorySummary.studentsWithClasses}/{repositorySummary.students}</strong>
               </div>
               <div>
@@ -615,84 +629,63 @@ const AdminView = ({ section = "overview" }) => {
       )}
 
       {section === "requests" && (
-        <div className="insight-grid">
-          <div className="panel">
-            <div className="panel-header">
-              <h3>Parent Account Requests</h3>
-              <span className="meta-badge">{pendingParentAccountRequests.length} pending</span>
-            </div>
-            {pendingParentAccountRequests.length ? (
-              <ul className="stack-list">
-                {pendingParentAccountRequests.map((request) => (
-                  <li key={request.id} className="list-row">
-                    <div>
-                      <strong>{request.name || "Parent"}</strong>
-                      <p>{request.email || "No email provided"}</p>
-                    </div>
-                    <div className="table-actions">
-                      <button
-                        type="button"
-                        className="primary-btn"
-                        disabled={savingParentRequestId === request.id}
-                        onClick={() => handleParentAccountDecision(request, "accept")}
-                      >
-                        {savingParentRequestId === request.id ? "Saving..." : "Accept"}
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        disabled={savingParentRequestId === request.id}
-                        onClick={() => handleParentAccountDecision(request, "reject")}
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="empty-copy">No parent accounts are waiting for approval.</p>
-            )}
+        <div className="panel">
+          <div className="panel-header">
+            <h3>Requests</h3>
+            <span className="meta-badge">{pendingRequests.length} pending</span>
           </div>
+          {pendingRequests.length ? (
+            <ul className="stack-list">
+              {pendingRequests.map((request) => {
+                const isParentAccountRequest = request.requestType === "parent-account";
+                const isSaving = isParentAccountRequest
+                  ? savingParentRequestId === request.id
+                  : savingAccessRequestId === request.id;
 
-          <div className="panel">
-            <div className="panel-header">
-              <h3>Student Access Requests</h3>
-              <span className="meta-badge">{pendingParentStudentAccessRequests.length} pending</span>
-            </div>
-            {pendingParentStudentAccessRequests.length ? (
-              <ul className="stack-list">
-                {pendingParentStudentAccessRequests.map((request) => (
-                  <li key={request.id} className="list-row">
+                return (
+                  <li key={`${request.requestType}-${request.id}`} className="list-row">
                     <div>
-                      <strong>{request.parentName || "Parent"}</strong>
-                      <p>{request.studentName || "Student"} {request.studentNumber ? `(${request.studentNumber})` : ""}</p>
+                      <strong>{isParentAccountRequest ? request.name || "Parent" : request.parentName || "Parent"}</strong>
+                      <p>
+                        <span className="meta-badge">{request.requestLabel}</span>{" "}
+                        {isParentAccountRequest
+                          ? `${request.email || "No email provided"} | Student ID ${request.studentNumber || "N/A"}`
+                          : `${request.studentName || "Student"} ${request.studentNumber ? `(${request.studentNumber})` : ""}`}
+                      </p>
                     </div>
                     <div className="table-actions">
                       <button
                         type="button"
                         className="primary-btn"
-                        disabled={savingAccessRequestId === request.id}
-                        onClick={() => handleStudentAccessDecision(request, "accept")}
+                        disabled={isSaving}
+                        onClick={() => (
+                          isParentAccountRequest
+                            ? handleParentAccountDecision(request, "accept")
+                            : handleStudentAccessDecision(request, "accept")
+                        )}
                       >
-                        {savingAccessRequestId === request.id ? "Saving..." : "Accept"}
+                        {isSaving ? "Saving..." : "Accept"}
                       </button>
                       <button
                         type="button"
                         className="secondary-btn"
-                        disabled={savingAccessRequestId === request.id}
-                        onClick={() => handleStudentAccessDecision(request, "reject")}
+                        disabled={isSaving}
+                        onClick={() => (
+                          isParentAccountRequest
+                            ? handleParentAccountDecision(request, "reject")
+                            : handleStudentAccessDecision(request, "reject")
+                        )}
                       >
                         Decline
                       </button>
                     </div>
                   </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="empty-copy">No student access requests are waiting for approval.</p>
-            )}
-          </div>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="empty-copy">No requests are waiting for approval.</p>
+          )}
         </div>
       )}
 
@@ -718,7 +711,7 @@ const AdminView = ({ section = "overview" }) => {
           <div className="insight-grid">
             <div className="panel">
               <div className="panel-header">
-                <h3>{selectedClass?.name || selectedClass?.section || "Selected Class"}</h3>
+                <h3>{selectedClass?.name || selectedClass?.section || "Selected Section"}</h3>
                 <span className="meta-badge">{selectedClassTeacher}</span>
               </div>
               <div className="report-strip">
@@ -740,11 +733,11 @@ const AdminView = ({ section = "overview" }) => {
             <div className="panel">
               <h3>Data Integrity Checks</h3>
               <ul className="stack-list">
-                <li className="list-row"><strong>Students with class assignment</strong><span>{repositorySummary.studentsWithClasses}/{repositorySummary.students}</span></li>
+                <li className="list-row"><strong>Students with section assignment</strong><span>{repositorySummary.studentsWithClasses}/{repositorySummary.students}</span></li>
                 <li className="list-row"><strong>Parents linked to a student</strong><span>{repositorySummary.studentsWithParents}</span></li>
                 <li className="list-row"><strong>Orphan student records</strong><span>{orphanStudents.length}</span></li>
                 <li className="list-row"><strong>Unlinked parent accounts</strong><span>{unlinkedParents.length}</span></li>
-                <li className="list-row"><strong>Classes without teacher assignment</strong><span>{classesWithoutTeacher.length}</span></li>
+                <li className="list-row"><strong>Sections without adviser assignment</strong><span>{classesWithoutTeacher.length}</span></li>
               </ul>
             </div>
           </div>
@@ -761,7 +754,7 @@ const AdminView = ({ section = "overview" }) => {
                   type="search"
                   value={studentSearch}
                   onChange={(event) => setStudentSearch(event.target.value)}
-                  placeholder="Name, ID, email, class"
+                  placeholder="Name, ID, email, section"
                 />
               </label>
               <label className="selector-field">
@@ -774,13 +767,13 @@ const AdminView = ({ section = "overview" }) => {
                 </select>
               </label>
               <label className="selector-field">
-                <span>Class</span>
+                <span>Section</span>
                 <select value={studentClassFilter} onChange={(event) => {
                   setStudentClassFilter(event.target.value);
                   if (event.target.value && event.target.value !== "__unassigned") setSelectedClassId(event.target.value);
                 }}>
-                  <option value="">All Classes</option>
-                  <option value="__unassigned">No Class / Unassigned</option>
+                  <option value="">All Sections</option>
+                  <option value="__unassigned">No Section / Unassigned</option>
                   {classReports.map((classroom) => (
                     <option key={classroom.id} value={classroom.id}>
                       {classroom.name || `${classroom.gradeLevel || "Grade"} - ${classroom.section || classroom.id}`}
@@ -805,7 +798,7 @@ const AdminView = ({ section = "overview" }) => {
                 <tr>
                   <th>Student</th>
                   <th>Grade</th>
-                  <th>Class</th>
+                  <th>Section</th>
                   <th>ID Number</th>
                   <th>Average</th>
                   <th>Attendance</th>
@@ -823,7 +816,7 @@ const AdminView = ({ section = "overview" }) => {
                     <td data-label="Grade">
                       <span className="record-badge">{student.gradeLevel || "N/A"}</span>
                     </td>
-                    <td data-label="Class">
+                    <td data-label="Section">
                       <span className={`record-badge ${student.classId ? "" : "muted"}`}>
                         {student.className || "Unassigned"}
                       </span>
@@ -881,22 +874,22 @@ const AdminView = ({ section = "overview" }) => {
         <>
           <div className="toolbar">
             <div>
-              <h3>Class Manager</h3>
-              <p className="muted-text">Create sections, assign advisers, and manage class codes.</p>
+              <h3>Section Manager</h3>
+              <p className="muted-text">Create sections, assign advisers, and manage section codes.</p>
             </div>
             <div className="toolbar-actions">
               <button type="button" className="primary-btn" onClick={() => openClassForm()}>
-                Add Class
+                Add Section
               </button>
             </div>
           </div>
 
           <div className="panel">
-            <h3>Classes</h3>
+            <h3>Sections</h3>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Class</th>
+                  <th>Grade & Section</th>
                   <th>Grade</th>
                   <th>Section</th>
                   <th>Code</th>
@@ -908,7 +901,7 @@ const AdminView = ({ section = "overview" }) => {
               <tbody>
                 {classReports.map((classroom) => (
                   <tr key={classroom.id}>
-                    <td data-label="Class">{classroom.name || classroom.section || classroom.id}</td>
+                    <td data-label="Grade & Section">{classroom.name || classroom.section || classroom.id}</td>
                     <td data-label="Grade">{classroom.gradeLevel || "N/A"}</td>
                     <td data-label="Section">{classroom.section || "N/A"}</td>
                     <td data-label="Code">{classroom.classCode || "N/A"}</td>
@@ -923,7 +916,7 @@ const AdminView = ({ section = "overview" }) => {
                 ))}
                 {classReports.length === 0 && (
                   <tr>
-                    <td colSpan="7">No classes available yet.</td>
+                    <td colSpan="7">No sections available yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -947,7 +940,7 @@ const AdminView = ({ section = "overview" }) => {
                 <th>Email</th>
                 <th>Subjects</th>
                 <th>Advisory</th>
-                <th>Classes</th>
+                <th>Sections</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -958,7 +951,7 @@ const AdminView = ({ section = "overview" }) => {
                   <td data-label="Email">{teacher.email || "N/A"}</td>
                   <td data-label="Subjects">{teacher.subjects.length ? teacher.subjects.join(", ") : "None"}</td>
                   <td data-label="Advisory">{teacher.advisoryClassName || "No Advisory"}</td>
-                  <td data-label="Classes">{teacher.classCount}</td>
+                  <td data-label="Sections">{teacher.classCount}</td>
                   <td data-label="Action">
                     <div className="table-actions">
                       <button className="secondary-btn" type="button" onClick={() => setManagingTeacher(teacher)}>
@@ -1075,7 +1068,7 @@ const AdminView = ({ section = "overview" }) => {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Class</th>
+                  <th>Section</th>
                   <th>Students</th>
                   <th>Average GPA</th>
                   <th>Attendance</th>
@@ -1085,7 +1078,7 @@ const AdminView = ({ section = "overview" }) => {
               <tbody>
                 {classReports.map((classroom) => (
                   <tr key={classroom.id}>
-                    <td data-label="Class">{classroom.name || classroom.section || classroom.id}</td>
+                    <td data-label="Section">{classroom.name || classroom.section || classroom.id}</td>
                     <td data-label="Students">{classroom.students.length}</td>
                     <td data-label="Average GPA">{classroom.averageGpa ?? "N/A"}</td>
                     <td data-label="Attendance">{classroom.averageAttendance ? `${classroom.averageAttendance}%` : "N/A"}</td>
@@ -1102,7 +1095,7 @@ const AdminView = ({ section = "overview" }) => {
               <thead>
                 <tr>
                   <th>Student</th>
-                  <th>Class</th>
+                  <th>Section</th>
                   <th>Average</th>
                   <th>Attendance</th>
                   <th>Alerts</th>
@@ -1112,7 +1105,7 @@ const AdminView = ({ section = "overview" }) => {
                 {atRiskStudents.map((student) => (
                   <tr key={student.id}>
                     <td data-label="Student">{student.name}</td>
-                    <td data-label="Class">{student.className}</td>
+                    <td data-label="Section">{student.className}</td>
                     <td data-label="Average">{student.gpa ?? "N/A"}</td>
                     <td data-label="Attendance">{student.attendanceLabel}</td>
                     <td data-label="Alerts">{student.alerts.join(" ")}</td>
@@ -1242,7 +1235,7 @@ const AdminView = ({ section = "overview" }) => {
         <div className="modal-overlay">
           <div className="modal-content">
             <div className="panel-header">
-              <h3>{editingClassId ? "Edit Class" : "Add Class"}</h3>
+              <h3>{editingClassId ? "Edit Section" : "Add Section"}</h3>
             </div>
             <form onSubmit={handleSaveClass}>
               <div className="modal-form-grid">
@@ -1272,7 +1265,7 @@ const AdminView = ({ section = "overview" }) => {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Class Code</label>
+                  <label>Section Code</label>
                   <input
                     type="text"
                     value={classForm.classCode}
@@ -1298,7 +1291,7 @@ const AdminView = ({ section = "overview" }) => {
               </div>
               <div className="modal-actions">
                 <button type="submit" className="primary-btn" disabled={savingClass}>
-                  {savingClass ? "Saving..." : editingClassId ? "Save Class" : "Add Class"}
+                  {savingClass ? "Saving..." : editingClassId ? "Save Section" : "Add Section"}
                 </button>
                 <button type="button" className="secondary-btn" onClick={() => {
                   setShowClassForm(false);
@@ -1365,9 +1358,9 @@ const AdminView = ({ section = "overview" }) => {
           tone="danger"
           title={`Delete ${deletingAccount.name}?`}
           message={deletingAccount.role === "student"
-            ? "This will delete the student account, student record, class roster link, and pending parent access requests."
+            ? "This will delete the student account, student record, section roster link, and pending parent access requests."
             : deletingAccount.role === "teacher"
-            ? "This will delete the teacher account and remove advisory assignment from any class."
+            ? "This will delete the teacher account and remove advisory assignment from any section."
             : "This will delete the parent account and remove links to student records and pending access requests."}
           confirmLabel={`Delete ${deletingAccount.role.charAt(0).toUpperCase() + deletingAccount.role.slice(1)}`}
           cancelLabel="Cancel"

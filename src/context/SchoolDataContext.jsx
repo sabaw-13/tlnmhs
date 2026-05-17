@@ -18,6 +18,12 @@ const SchoolDataContext = createContext();
 const ATTENDED_ATTENDANCE_STATUSES = new Set(["present", "late", "excused"]);
 const CLASS_CODE_LENGTH = 6;
 const GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"];
+const QUARTER_KEYS = ["q1", "q2", "q3", "q4"];
+const DEFAULT_GRADE_WEIGHTS = {
+  writtenWork: 30,
+  performanceTask: 50,
+  finalExam: 20
+};
 
 const normalizeGradeLevel = (value) => {
   const trimmedValue = String(value || "").trim();
@@ -68,6 +74,78 @@ const normalizeScoreList = (value) => {
 
   const score = toNumber(value);
   return Number.isFinite(score) ? [score] : [];
+};
+
+const averageScores = (values = []) => {
+  const scores = normalizeScoreList(values).filter((value) => Number.isFinite(value));
+  if (!scores.length) return null;
+
+  return scores.reduce((sum, value) => sum + value, 0) / scores.length;
+};
+
+const normalizeGradeWeights = (weights = {}) => ({
+  writtenWork: Math.max(0, toNumber(weights.writtenWork) ?? DEFAULT_GRADE_WEIGHTS.writtenWork),
+  performanceTask: Math.max(0, toNumber(weights.performanceTask) ?? DEFAULT_GRADE_WEIGHTS.performanceTask),
+  finalExam: Math.max(0, toNumber(weights.finalExam) ?? DEFAULT_GRADE_WEIGHTS.finalExam)
+});
+
+const calculateWeightedQuarterGrade = (quarterScores = {}, weights = DEFAULT_GRADE_WEIGHTS) => {
+  const normalizedWeights = normalizeGradeWeights(weights);
+  const categoryScores = [
+    {
+      score: averageScores([
+        ...(quarterScores.writtenWork?.quizzes || []),
+        ...(quarterScores.writtenWork?.longTests || [])
+      ]),
+      weight: normalizedWeights.writtenWork
+    },
+    {
+      score: averageScores([
+        ...(quarterScores.performanceTask?.projects || []),
+        ...(quarterScores.performanceTask?.activities || [])
+      ]),
+      weight: normalizedWeights.performanceTask
+    },
+    {
+      score: averageScores(quarterScores.finalExam?.exams || []),
+      weight: normalizedWeights.finalExam
+    }
+  ].filter((item) => Number.isFinite(item.score) && item.weight > 0);
+  const totalWeight = categoryScores.reduce((sum, item) => sum + item.weight, 0);
+  if (!totalWeight) return null;
+
+  return Number((categoryScores.reduce((sum, item) => sum + (item.score * item.weight), 0) / totalWeight).toFixed(1));
+};
+
+const normalizeQuarterScores = (subject = {}, fallbackSubject = {}) => {
+  const sourceQuarters = subject.quarters && typeof subject.quarters === "object" ? subject.quarters : {};
+  const fallbackQuarters = fallbackSubject.quarters && typeof fallbackSubject.quarters === "object" ? fallbackSubject.quarters : {};
+
+  return QUARTER_KEYS.reduce((quarters, quarterKey, index) => {
+    const sourceQuarter = sourceQuarters[quarterKey] || sourceQuarters[`quarter${index + 1}`] || {};
+    const fallbackQuarter = fallbackQuarters[quarterKey] || fallbackQuarters[`quarter${index + 1}`] || {};
+    const legacyScores = index === 0 ? {
+      activities: subject.activities ?? fallbackSubject.activities,
+      quizzes: subject.quizzes ?? fallbackSubject.quizzes,
+      exams: subject.exams ?? fallbackSubject.exams
+    } : {};
+
+    quarters[quarterKey] = {
+      writtenWork: {
+        quizzes: normalizeScoreList(sourceQuarter.writtenWork?.quizzes ?? fallbackQuarter.writtenWork?.quizzes ?? sourceQuarter.quizzes ?? fallbackQuarter.quizzes ?? legacyScores.quizzes),
+        longTests: normalizeScoreList(sourceQuarter.writtenWork?.longTests ?? fallbackQuarter.writtenWork?.longTests)
+      },
+      performanceTask: {
+        projects: normalizeScoreList(sourceQuarter.performanceTask?.projects ?? fallbackQuarter.performanceTask?.projects),
+        activities: normalizeScoreList(sourceQuarter.performanceTask?.activities ?? fallbackQuarter.performanceTask?.activities ?? sourceQuarter.activities ?? fallbackQuarter.activities ?? legacyScores.activities)
+      },
+      finalExam: {
+        exams: normalizeScoreList(sourceQuarter.finalExam?.exams ?? fallbackQuarter.finalExam?.exams ?? sourceQuarter.exams ?? fallbackQuarter.exams ?? legacyScores.exams)
+      }
+    };
+
+    return quarters;
+  }, {});
 };
 
 const buildGeneratedStudentEmail = (studentNumber, rowIndex, variant = 0) => {
@@ -422,10 +500,14 @@ export const SchoolDataProvider = ({ children }) => {
       };
     });
 
-  const getClassAttendanceRecords = (classId) => {
-    const classRecords = attendanceRecords?.[classId] || {};
+  const getClassAttendanceRecords = (classId, subjectName = "") => {
+    const subjectKey = buildSubjectKey(subjectName);
+    const classRecords = subjectKey
+      ? attendanceRecords?.[classId]?.[subjectKey] || {}
+      : attendanceRecords?.[classId] || {};
 
     return Object.entries(classRecords)
+      .filter(([, record]) => record && typeof record === "object" && record.records)
       .map(([date, record]) => ({
         date,
         ...(record && typeof record === "object" ? record : {})
@@ -433,25 +515,31 @@ export const SchoolDataProvider = ({ children }) => {
       .sort((left, right) => String(right.date).localeCompare(String(left.date)));
   };
 
-  const getAttendanceRecord = (classId, date) => {
+  const getAttendanceRecord = (classId, date, subjectName = "") => {
     if (!classId || !date) return null;
 
-    const record = attendanceRecords?.[classId]?.[date];
+    const subjectKey = buildSubjectKey(subjectName);
+    const record = subjectKey
+      ? attendanceRecords?.[classId]?.[subjectKey]?.[date]
+      : attendanceRecords?.[classId]?.[date];
     if (!record || typeof record !== "object") return null;
 
-    return record.date ? record : { date, ...record };
+    return record.date ? record : { date, subjectKey, subjectName, ...record };
   };
 
-  const calculateAttendanceRate = ({ classId, studentId, date, nextRecord }) => {
+  const calculateAttendanceRate = ({ classId, studentId, date, nextRecord, subjectName }) => {
+    const subjectKey = buildSubjectKey(subjectName || nextRecord?.subjectName);
     const classRecords = {
-      ...(attendanceRecords?.[classId] || {}),
+      ...(subjectKey
+        ? attendanceRecords?.[classId]?.[subjectKey] || {}
+        : attendanceRecords?.[classId] || {}),
       [date]: nextRecord
     };
     const countedRecords = Object.values(classRecords).filter((record) => (
       record
       && typeof record === "object"
       && record.status !== "no-class"
-      && record.records?.[studentId]
+      && record.records?.[studentId]?.status
     ));
 
     if (!countedRecords.length) return null;
@@ -518,7 +606,7 @@ export const SchoolDataProvider = ({ children }) => {
 
         targetStudentId = createdAccount.uid;
       } else {
-        throw new Error("Teachers can only add existing students to their advisory class.");
+        throw new Error("Teachers can only add existing students to their advisory section.");
       }
     } else if (userData?.role === "admin" && users.some((user) => user.id === studentId)) {
       await syncManagedAccount({
@@ -551,7 +639,7 @@ export const SchoolDataProvider = ({ children }) => {
       ].includes(currentUser?.uid);
 
       if (userData?.role === "teacher" && (!classroom || !isClassAdviser)) {
-        throw new Error("Teachers can only add or edit students in their advisory class.");
+        throw new Error("Teachers can only add or edit students in their advisory section.");
       }
 
       const normalizedStudentGradeLevel = normalizeGradeLevel(classroom?.gradeLevel)
@@ -582,18 +670,37 @@ export const SchoolDataProvider = ({ children }) => {
             ? Number((quarterGrades.reduce((sum, grade) => sum + grade, 0) / quarterGrades.length).toFixed(1))
             : null;
 
+          const existingSubject = existingStudent?.subjects
+            ? (Array.isArray(existingStudent.subjects)
+              ? existingStudent.subjects
+              : Object.values(existingStudent.subjects))
+              .find((item) => (
+                String(item?.name || item?.subject || "").trim().toLowerCase() === subject.name.trim().toLowerCase()
+              ))
+            : null;
+          const previousAttendanceRate = toNumber(existingSubject?.attendanceRate ?? existingSubject?.attendance);
+          const attendanceRate = subject.attendanceRate === undefined && previousAttendanceRate !== null
+            ? clamp(previousAttendanceRate, 0, 100)
+            : null;
+          const quarters = normalizeQuarterScores(subject, existingSubject || {});
+          const gradeWeights = normalizeGradeWeights(subject.gradeWeights || existingSubject?.gradeWeights);
+
           return {
             id: subject.id || `subject-${index + 1}`,
             name: subject.name.trim(),
             teacher: subject.teacher?.trim() || teacherDetails.teacherName,
-            activities: normalizeScoreList(subject.activities),
-            quizzes: normalizeScoreList(subject.quizzes),
-            exams: normalizeScoreList(subject.exams),
+            gradeWeights,
+            activities: quarters.q1.performanceTask.activities,
+            quizzes: quarters.q1.writtenWork.quizzes,
+            exams: quarters.q1.finalExam.exams,
+            quarters,
             q1: toNumber(subject.q1),
             q2: toNumber(subject.q2),
             q3: toNumber(subject.q3),
             q4: toNumber(subject.q4),
             finalGrade,
+            attendanceRate,
+            attendanceLabel: attendanceRate === null ? "N/A" : `${attendanceRate}%`,
             status: finalGrade !== null && finalGrade >= 75 ? "Passed" : "Needs Attention"
           };
         });
@@ -673,12 +780,12 @@ export const SchoolDataProvider = ({ children }) => {
 
   const addStudentToClass = async ({ classId, studentId }) => {
     if (!currentUser || userData?.role !== "teacher") {
-      throw new Error("Only advisory teachers can add students to their class.");
+      throw new Error("Only advisory teachers can add students to their section.");
     }
 
     const classroom = classes.find((item) => item.id === classId) || null;
     if (!classroom) {
-      throw new Error("Select an advisory class before adding a student.");
+      throw new Error("Select an advisory section before adding a student.");
     }
 
     const isClassAdviser = [
@@ -689,7 +796,7 @@ export const SchoolDataProvider = ({ children }) => {
     ].includes(currentUser.uid);
 
     if (!isClassAdviser) {
-      throw new Error("Teachers can only add students to their own advisory class.");
+      throw new Error("Teachers can only add students to their own advisory section.");
     }
 
     const existingStudent = rawStudents.find((student) => student.id === studentId) || null;
@@ -706,7 +813,7 @@ export const SchoolDataProvider = ({ children }) => {
 
     const oldClassId = existingStudent?.classId || existingStudent?.classKey || existingStudent?.sectionId || existingUser?.classId || null;
     if (oldClassId === classId || classroom.studentIds?.[studentId]) {
-      throw new Error("This student is already in this class.");
+      throw new Error("This student is already in this section.");
     }
 
     const now = new Date().toISOString();
@@ -893,7 +1000,7 @@ export const SchoolDataProvider = ({ children }) => {
         )) || null;
 
         if (!matchedClass && !rowErrors.length) {
-          warnings.push(`Row ${rowNumber}: no class matched ${gradeLevel} - ${section}; imported without class assignment.`);
+          warnings.push(`Row ${rowNumber}: no section matched ${gradeLevel} - ${section}; imported without section assignment.`);
         }
       }
 
@@ -999,11 +1106,11 @@ export const SchoolDataProvider = ({ children }) => {
 
   const saveClassRecord = async ({ classId = "", payload }) => {
     if (!currentUser) {
-      throw new Error("Sign in before saving a class.");
+      throw new Error("Sign in before saving a section.");
     }
 
     if (userData?.role !== "admin") {
-      throw new Error("Only admin accounts can add or update classes.");
+      throw new Error("Only admin accounts can add or update sections.");
     }
 
     const sectionName = String(payload.section || "").trim();
@@ -1011,11 +1118,11 @@ export const SchoolDataProvider = ({ children }) => {
     const className = [gradeLevel, sectionName].filter(Boolean).join(" - ");
 
     if (!gradeLevel) {
-      throw new Error("Select a grade level for this class.");
+      throw new Error("Select a grade level for this section.");
     }
 
     if (!sectionName) {
-      throw new Error("Section is required for this class.");
+      throw new Error("Section name is required.");
     }
 
     const existingClass = classId ? classes.find((classroom) => classroom.id === classId) || null : null;
@@ -1032,15 +1139,15 @@ export const SchoolDataProvider = ({ children }) => {
       || generateClassCode(classes.map((classroom) => classroom.classCode));
 
     if (!targetClassId) {
-      throw new Error("Class ID could not be generated.");
+      throw new Error("Section ID could not be generated.");
     }
 
     if (hasDuplicateClassCode({ classes, classCode, exceptClassId: targetClassId })) {
-      throw new Error("Class code must be unique.");
+      throw new Error("Section code must be unique.");
     }
 
     if (!teacherId) {
-      throw new Error("Assign an advisory teacher to this class.");
+      throw new Error("Assign an adviser to this section.");
     }
 
     setSavingClass(true);
@@ -1105,11 +1212,11 @@ export const SchoolDataProvider = ({ children }) => {
 
   const requestClassJoin = async (classCode) => {
     if (!currentUser) {
-      throw new Error("Sign in before joining a class.");
+      throw new Error("Sign in before joining a section.");
     }
 
     if (userData?.role !== "student") {
-      throw new Error("Only student accounts can request to join a class.");
+      throw new Error("Only student accounts can request to join a section.");
     }
 
     const normalizedCode = normalizeClassCode(classCode);
@@ -1119,19 +1226,19 @@ export const SchoolDataProvider = ({ children }) => {
     ));
 
     if (!normalizedCode) {
-      throw new Error("Enter a class code.");
+      throw new Error("Enter a section code.");
     }
 
     if (!classroom) {
-      throw new Error("No class was found for that code.");
+      throw new Error("No section was found for that code.");
     }
 
     if (currentStudent?.classId && currentStudent.classId !== classroom.id) {
-      throw new Error("This account is already assigned to a class.");
+      throw new Error("This account is already assigned to a section.");
     }
 
     if (currentStudent?.classId === classroom.id || classroom.studentIds?.[currentUser.uid]) {
-      throw new Error("You are already in this class.");
+      throw new Error("You are already in this section.");
     }
 
     const existingRequest = classroom.joinRequests?.[currentUser.uid];
@@ -1179,7 +1286,7 @@ export const SchoolDataProvider = ({ children }) => {
     ].includes(currentUser?.uid);
 
     if (userData?.role !== "admin" && !isClassTeacher) {
-      throw new Error("Only the class teacher can accept this request.");
+      throw new Error("Only the section adviser can accept this request.");
     }
 
     const existingStudent = rawStudents.find((student) => student.id === studentId) || null;
@@ -1272,7 +1379,7 @@ export const SchoolDataProvider = ({ children }) => {
     ].includes(currentUser?.uid);
 
     if (userData?.role !== "admin" && !isClassTeacher) {
-      throw new Error("Only the class teacher can decline this request.");
+      throw new Error("Only the section adviser can decline this request.");
     }
 
     setSavingEnrollmentStudentId(studentId);
@@ -1299,6 +1406,7 @@ export const SchoolDataProvider = ({ children }) => {
     const parentName = String(request.name || request.displayName || "").trim() || "Parent";
     const parentEmail = String(request.email || "").trim();
     const parentPassword = String(request.password || "").trim();
+    const requestedStudentNumber = String(request.studentNumber || "").trim();
 
     if (!parentEmail) {
       throw new Error("Parent email is required.");
@@ -1306,6 +1414,22 @@ export const SchoolDataProvider = ({ children }) => {
 
     if (parentPassword.length < 6) {
       throw new Error("Parent password must be at least 6 characters long.");
+    }
+
+    if (!requestedStudentNumber) {
+      throw new Error("Student ID is required before approving a parent account.");
+    }
+
+    const linkedStudent = enrichedStudents.find((student) => (
+      String(student.studentNumber || "").trim().toLowerCase() === requestedStudentNumber.toLowerCase()
+    )) || null;
+
+    if (!linkedStudent) {
+      throw new Error("No student matched the requested student ID.");
+    }
+
+    if (linkedStudent.parentId) {
+      throw new Error("This student already has a linked parent.");
     }
 
     const createdAccount = await createManagedAccount({
@@ -1322,13 +1446,18 @@ export const SchoolDataProvider = ({ children }) => {
         name: parentName,
         email: parentEmail,
         role: "parent",
-        studentIds: {},
+        studentId: linkedStudent.id,
+        studentIds: {
+          [linkedStudent.id]: true
+        },
         createdAt: now,
         createdFromRequestId: requestId,
         updatedAt: now,
         updatedByName: userData?.displayName || userData?.email || currentUser?.email || "System User",
         updatedByRole: "admin"
       },
+      [`students/${linkedStudent.id}/parentId`]: createdAccount.uid,
+      [`students/${linkedStudent.id}/parentName`]: parentName,
       [`parentAccountRequests/${requestId}/status`]: "accepted",
       [`parentAccountRequests/${requestId}/acceptedAt`]: now,
       [`parentAccountRequests/${requestId}/acceptedBy`]: currentUser?.uid || "",
@@ -1487,25 +1616,32 @@ export const SchoolDataProvider = ({ children }) => {
   const saveDailyAttendanceRecord = async ({
     classId,
     className,
+    subjectName,
     date,
     isNoClass = false,
     noClassReason = "",
     entries = []
   }) => {
     if (!classId || !date) {
-      throw new Error("Class and date are required to save attendance.");
+      throw new Error("Section and date are required to save attendance.");
+    }
+
+    const normalizedSubjectName = String(subjectName || "").trim();
+    const subjectKey = buildSubjectKey(normalizedSubjectName);
+    if (!subjectKey) {
+      throw new Error("Subject is required to save attendance.");
     }
 
     const classroom = classes.find((item) => item.id === classId) || null;
     const now = new Date().toISOString();
-    const attendanceKey = `${classId}-${date}`;
+    const attendanceKey = `${classId}-${subjectKey}-${date}`;
     const normalizedEntries = entries.reduce((records, entry) => {
       if (!entry.studentId) return records;
 
       records[entry.studentId] = {
         studentId: entry.studentId,
         studentName: entry.studentName || "Student",
-        status: entry.status || "present",
+        status: entry.status || "",
         remarks: entry.remarks || ""
       };
 
@@ -1514,6 +1650,8 @@ export const SchoolDataProvider = ({ children }) => {
     const nextRecord = {
       classId,
       className: className || classroom?.name || classroom?.section || "",
+      subjectName: normalizedSubjectName,
+      subjectKey,
       date,
       status: isNoClass ? "no-class" : "recorded",
       noClassReason: isNoClass ? noClassReason.trim() : "",
@@ -1523,7 +1661,7 @@ export const SchoolDataProvider = ({ children }) => {
       updatedByRole: userData?.role || "unknown"
     };
     const updates = {
-      [`attendanceRecords/${classId}/${date}`]: nextRecord
+      [`attendanceRecords/${classId}/${subjectKey}/${date}`]: nextRecord
     };
 
     entries.forEach((entry) => {
@@ -1534,17 +1672,37 @@ export const SchoolDataProvider = ({ children }) => {
         classId,
         studentId: entry.studentId,
         date,
-        nextRecord
+        nextRecord,
+        subjectName: normalizedSubjectName
       });
-      const nextAttendanceLabel = attendanceRate === null ? "" : `${attendanceRate}%`;
+      const nextAttendanceLabel = attendanceRate === null ? "N/A" : `${attendanceRate}%`;
+      const existingSubjects = student.subjects || [];
+      const subjectIndex = existingSubjects.findIndex((subject) => (
+        String(subject.name || "").trim().toLowerCase() === normalizedSubjectName.toLowerCase()
+      ));
+      const previousSubject = subjectIndex >= 0 ? existingSubjects[subjectIndex] : {};
+      const nextSubject = {
+        ...previousSubject,
+        id: previousSubject.id || `subject-${subjectKey}`,
+        name: previousSubject.name || normalizedSubjectName,
+        teacher: previousSubject.teacher || userData?.displayName || userData?.email || currentUser?.email || "Teacher",
+        attendanceRate,
+        attendanceLabel: nextAttendanceLabel
+      };
+      const nextSubjects = subjectIndex >= 0
+        ? existingSubjects.map((subject, index) => (index === subjectIndex ? nextSubject : subject))
+        : [...existingSubjects, nextSubject];
+      const overallAttendanceRate = averageValues(nextSubjects.map((subject) => subject.attendanceRate));
+      const overallAttendanceLabel = overallAttendanceRate === null ? "" : `${overallAttendanceRate}%`;
       const performanceStatus = computePerformanceStatus({
         gpa: student.gpa,
-        attendanceRate,
-        subjects: student.subjects
+        attendanceRate: overallAttendanceRate,
+        subjects: nextSubjects
       });
 
-      updates[`students/${entry.studentId}/attendance`] = nextAttendanceLabel;
-      updates[`students/${entry.studentId}/attendanceRate`] = attendanceRate;
+      updates[`students/${entry.studentId}/subjects`] = nextSubjects;
+      updates[`students/${entry.studentId}/attendance`] = overallAttendanceLabel;
+      updates[`students/${entry.studentId}/attendanceRate`] = overallAttendanceRate;
       updates[`students/${entry.studentId}/performanceStatus`] = performanceStatus;
       updates[`students/${entry.studentId}/updatedAt`] = now;
       updates[`students/${entry.studentId}/updatedByName`] = userData?.displayName || userData?.email || currentUser?.email || "System User";
@@ -1864,7 +2022,7 @@ export const SchoolDataProvider = ({ children }) => {
 
   const saveTeacherSubjectClasses = async ({ subjectName, classIds = [], subjectNames = [] }) => {
     if (!currentUser || userData?.role !== "teacher") {
-      throw new Error("Only teacher accounts can assign classes to their subjects.");
+      throw new Error("Only teacher accounts can assign sections to their subjects.");
     }
 
     const normalizedSubjectName = String(subjectName || "").trim();
@@ -1879,7 +2037,7 @@ export const SchoolDataProvider = ({ children }) => {
     ));
 
     if (!subjectKey || !canManageSubject) {
-      throw new Error("Select one of your assigned subjects before assigning classes.");
+      throw new Error("Select one of your assigned subjects before assigning sections.");
     }
 
     const allowedClassIds = new Set(classes.map((classroom) => classroom.id));
@@ -1938,12 +2096,10 @@ export const SchoolDataProvider = ({ children }) => {
       String(subject.name || "").trim().toLowerCase() === normalizedSubjectName.toLowerCase()
     ));
     const previousSubject = subjectIndex >= 0 ? existingSubjects[subjectIndex] : {};
-    const quarterGrades = [
-      toNumber(scores.q1),
-      toNumber(scores.q2),
-      toNumber(scores.q3),
-      toNumber(scores.q4)
-    ].filter((grade) => Number.isFinite(grade));
+    const gradeWeights = normalizeGradeWeights(scores.gradeWeights || previousSubject.gradeWeights);
+    const quarters = normalizeQuarterScores(scores, previousSubject);
+    const quarterValues = QUARTER_KEYS.map((quarterKey) => calculateWeightedQuarterGrade(quarters[quarterKey], gradeWeights));
+    const quarterGrades = quarterValues.filter((grade) => Number.isFinite(grade));
     const finalGrade = quarterGrades.length
       ? Number((quarterGrades.reduce((sum, grade) => sum + grade, 0) / quarterGrades.length).toFixed(1))
       : null;
@@ -1952,13 +2108,15 @@ export const SchoolDataProvider = ({ children }) => {
       id: previousSubject.id || `subject-${buildSubjectKey(normalizedSubjectName)}`,
       name: normalizedSubjectName,
       teacher: teacherName,
-      activities: normalizeScoreList(scores.activities),
-      quizzes: normalizeScoreList(scores.quizzes),
-      exams: normalizeScoreList(scores.exams),
-      q1: toNumber(scores.q1),
-      q2: toNumber(scores.q2),
-      q3: toNumber(scores.q3),
-      q4: toNumber(scores.q4),
+      gradeWeights,
+      activities: quarters.q1.performanceTask.activities,
+      quizzes: quarters.q1.writtenWork.quizzes,
+      exams: quarters.q1.finalExam.exams,
+      quarters,
+      q1: quarterValues[0],
+      q2: quarterValues[1],
+      q3: quarterValues[2],
+      q4: quarterValues[3],
       finalGrade,
       status: finalGrade !== null && finalGrade >= 75 ? "Passed" : "Needs Attention"
     };

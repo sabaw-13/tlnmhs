@@ -151,7 +151,7 @@ const TeacherRecordModal = ({
             )}
 
             <div className="form-group form-group-full">
-              <label>Advisory Class</label>
+              <label>Advisory Section</label>
               <select
                 value={formData.advisoryClassId}
                 onChange={(event) => setFormData({ ...formData, advisoryClassId: event.target.value })}

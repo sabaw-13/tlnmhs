@@ -86,7 +86,7 @@ const Dashboard = () => {
         ...common,
         { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
         { path: "/dashboard/students", label: "Students", icon: <Users size={20} /> },
-        { path: "/dashboard/classes", label: "Classes", icon: <School size={20} /> },
+        { path: "/dashboard/classes", label: "Sections", icon: <School size={20} /> },
         { path: "/dashboard/teachers", label: "Teachers", icon: <UserCog size={20} /> },
         { path: "/dashboard/parents", label: "Parents", icon: <Users size={20} /> },
         { path: "/dashboard/reports", label: "Reports", icon: <BarChart3 size={20} /> },
@@ -97,7 +97,6 @@ const Dashboard = () => {
     if (role === "teacher") {
       return [
         ...common,
-        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
         { path: "/dashboard/students", label: "Students", icon: <Users size={20} /> },
         { path: "/dashboard/subjects", label: "Subjects", icon: <BookOpen size={20} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <CalendarCheck size={20} /> },
@@ -110,7 +109,7 @@ const Dashboard = () => {
     if (role === "student") {
       return [
         ...common,
-        { path: "/dashboard/join-class", label: "Join Class", icon: <Inbox size={20} /> },
+        { path: "/dashboard/join-class", label: "Join Section", icon: <Inbox size={20} /> },
         { path: "/dashboard/grades", label: "My Grades", icon: <GraduationCap size={20} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={20} /> },
         settingsItem
@@ -122,6 +121,7 @@ const Dashboard = () => {
         ...common,
         { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
         { path: "/dashboard/child-report", label: "Child Report", icon: <BookOpen size={20} /> },
+        { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={20} /> },
         { path: "/dashboard/updates", label: "Updates", icon: <BellRing size={20} /> },
         settingsItem
       ];
@@ -149,7 +149,6 @@ const Dashboard = () => {
         return (
           <>
             <Route index element={<TeacherView section="dashboard" />} />
-            <Route path="requests" element={<TeacherView section="requests" />} />
             <Route path="students" element={<TeacherView section="students" />} />
             <Route path="subjects" element={<TeacherView section="subjects" />} />
             <Route path="attendance" element={<TeacherView section="attendance" />} />
@@ -172,6 +171,7 @@ const Dashboard = () => {
             <Route index element={<ParentView section="dashboard" />} />
             <Route path="requests" element={<ParentView section="requests" />} />
             <Route path="child-report" element={<ParentView section="report" />} />
+            <Route path="attendance" element={<ParentView section="attendance" />} />
             <Route path="updates" element={<ParentView section="updates" />} />
           </>
         );

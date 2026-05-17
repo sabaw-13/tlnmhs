@@ -11,6 +11,23 @@ const formatScoreList = (scores) => {
     .map((score, index) => `${index + 1}: ${score === "" || score === null || score === undefined ? "-" : score}`)
     .join(", ");
 };
+const QUARTER_OPTIONS = [
+  { key: "q1", label: "Q1" },
+  { key: "q2", label: "Q2" },
+  { key: "q3", label: "Q3" },
+  { key: "q4", label: "Q4" }
+];
+const formatQuarterScores = (subject, quarterKey) => {
+  const quarterScores = subject.quarters?.[quarterKey] || {};
+
+  return [
+    `Quiz ${formatScoreList(quarterScores.writtenWork?.quizzes ?? quarterScores.quizzes)}`,
+    `Long Test ${formatScoreList(quarterScores.writtenWork?.longTests)}`,
+    `Project ${formatScoreList(quarterScores.performanceTask?.projects)}`,
+    `Activity ${formatScoreList(quarterScores.performanceTask?.activities ?? quarterScores.activities)}`,
+    `Final Exam ${formatScoreList(quarterScores.finalExam?.exams ?? quarterScores.exams)}`
+  ].join(" | ");
+};
 
 const ParentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -263,14 +280,12 @@ const ParentView = ({ section = "overview" }) => {
               <tr>
                 <th>Subject</th>
                 <th>Teacher</th>
-                <th>Activities</th>
-                <th>Quizzes</th>
-                <th>Exams</th>
-                <th>Q1</th>
-                <th>Q2</th>
-                <th>Q3</th>
-                <th>Q4</th>
+                <th>Q1 Scores</th>
+                <th>Q2 Scores</th>
+                <th>Q3 Scores</th>
+                <th>Q4 Scores</th>
                 <th>Final Grade</th>
+                <th>Attendance</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -279,24 +294,60 @@ const ParentView = ({ section = "overview" }) => {
                 <tr key={subject.id}>
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
-                  <td data-label="Activities">{formatScoreList(subject.activities)}</td>
-                  <td data-label="Quizzes">{formatScoreList(subject.quizzes)}</td>
-                  <td data-label="Exams">{formatScoreList(subject.exams)}</td>
-                  <td data-label="Q1">{subject.q1 ?? "N/A"}</td>
-                  <td data-label="Q2">{subject.q2 ?? "N/A"}</td>
-                  <td data-label="Q3">{subject.q3 ?? "N/A"}</td>
-                  <td data-label="Q4">{subject.q4 ?? "N/A"}</td>
+                  {QUARTER_OPTIONS.map((quarter) => (
+                    <td key={quarter.key} data-label={`${quarter.label} Scores`}>{formatQuarterScores(subject, quarter.key)}</td>
+                  ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
+                  <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
                   <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
               {linkedStudent.subjects.length === 0 && (
                 <tr>
-                  <td colSpan="11">No grade records available yet.</td>
+                  <td colSpan="9">No grade records available yet.</td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {section === "attendance" && (
+        <div className="insight-grid">
+          <div className="panel">
+            <h3>Attendance Overview</h3>
+            <div className="progress-track large">
+              <div className="progress-fill" style={{ width: `${linkedStudent.attendanceRate || 0}%` }} />
+            </div>
+            <p className="mt-4">Current attendance: <strong>{linkedStudent.attendanceLabel}</strong></p>
+          </div>
+
+          <div className="panel">
+            <h3>Subject Attendance</h3>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Teacher</th>
+                  <th>Attendance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linkedStudent.subjects.map((subject) => (
+                  <tr key={subject.id}>
+                    <td data-label="Subject">{subject.name}</td>
+                    <td data-label="Teacher">{subject.teacher}</td>
+                    <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
+                  </tr>
+                ))}
+                {linkedStudent.subjects.length === 0 && (
+                  <tr>
+                    <td colSpan="3">No subject attendance records available yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

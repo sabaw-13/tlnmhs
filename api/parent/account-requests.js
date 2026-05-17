@@ -19,6 +19,27 @@ const normalizeBody = (requestBody) => {
   return requestBody;
 };
 
+const normalizeLookupValue = (value) => String(value || "").trim().toLowerCase();
+
+const getStudentNumberCandidates = (student) => [
+  student?.studentNumber,
+  student?.studentIdNumber,
+  student?.lrn,
+  student?.idNumber
+].map(normalizeLookupValue).filter(Boolean);
+
+const studentNumberExists = async (db, studentNumber) => {
+  const normalizedStudentNumber = normalizeLookupValue(studentNumber);
+  if (!normalizedStudentNumber) return false;
+
+  const studentsSnapshot = await db.ref("students").get();
+  const students = studentsSnapshot.val() || {};
+
+  return Object.values(students).some((student) => (
+    getStudentNumberCandidates(student).includes(normalizedStudentNumber)
+  ));
+};
+
 export default async function handler(request, response) {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
@@ -30,6 +51,7 @@ export default async function handler(request, response) {
     const name = String(body.name || "").trim();
     const email = String(body.email || "").trim();
     const password = String(body.password || "").trim();
+    const studentNumber = String(body.studentNumber || "").trim();
 
     if (!name) {
       return sendJson(response, 400, { error: "Parent name is required." });
@@ -43,7 +65,16 @@ export default async function handler(request, response) {
       return sendJson(response, 400, { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.` });
     }
 
+    if (!studentNumber) {
+      return sendJson(response, 400, { error: "Student ID is required." });
+    }
+
     const db = adminDb();
+
+    if (!(await studentNumberExists(db, studentNumber))) {
+      return sendJson(response, 400, { error: "Student ID must match an existing student record." });
+    }
+
     const requestRef = db.ref("parentAccountRequests").push();
     const now = new Date().toISOString();
 
@@ -51,6 +82,7 @@ export default async function handler(request, response) {
       name,
       email,
       password,
+      studentNumber,
       status: "pending",
       requestedAt: now
     });

@@ -599,6 +599,43 @@
   outline: none;
 }
 
+.monthly-attendance-table th,
+.monthly-attendance-table td {
+  min-width: 42px;
+  padding: 0.35rem;
+}
+
+.monthly-attendance-table th:first-child,
+.monthly-attendance-table td:first-child {
+  min-width: 54px;
+}
+
+.monthly-attendance-table th:nth-child(2),
+.monthly-attendance-table td:nth-child(2) {
+  left: 54px;
+  min-width: 180px;
+}
+
+.monthly-student-name {
+  text-align: left !important;
+  font-weight: 850;
+}
+
+.attendance-cell-select {
+  width: 38px;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-elevated);
+  color: var(--text-main);
+  font-weight: 850;
+  text-align: center;
+}
+
+.monthly-attendance-legend {
+  justify-content: center;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -808,16 +845,24 @@
   flex-wrap: wrap;
   gap: 0.65rem;
   justify-content: flex-end;
+  align-items: center;
 }
 
 .score-column-control {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+.score-column-control {
   padding: 0.35rem;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-subtle);
+}
+
+.icon-btn {
+  min-width: 38px;
 }
 
 .score-column-control span {

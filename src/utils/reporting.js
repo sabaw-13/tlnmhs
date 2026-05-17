@@ -1,6 +1,12 @@
 const PASSING_GRADE = 75;
 const NEEDS_SUPPORT_GRADE = 80;
 const NEEDS_SUPPORT_ATTENDANCE = 85;
+const QUARTER_KEYS = ["q1", "q2", "q3", "q4"];
+const DEFAULT_GRADE_WEIGHTS = {
+  writtenWork: 30,
+  performanceTask: 50,
+  finalExam: 20
+};
 
 const average = (values) => {
   const validValues = values.filter((value) => Number.isFinite(value));
@@ -43,9 +49,48 @@ const normalizeScoreList = (value) => {
     return trimTrailingBlanks(Object.values(value).map(normalizeScoreEntry));
   }
 
+  if (typeof value === "string" && value.includes(",")) {
+    return trimTrailingBlanks(value.split(",").map(normalizeScoreEntry));
+  }
+
   const score = toNumber(value);
   return Number.isFinite(score) ? [score] : [];
 };
+
+const normalizeQuarterScores = (subject) => {
+  const sourceQuarters = subject.quarters && typeof subject.quarters === "object" ? subject.quarters : {};
+
+  return QUARTER_KEYS.reduce((quarters, quarterKey, index) => {
+    const sourceQuarter = sourceQuarters[quarterKey] || sourceQuarters[`quarter${index + 1}`] || {};
+    const legacyScores = index === 0 ? {
+      activities: subject.activities ?? subject.activityScore ?? subject.activity,
+      quizzes: subject.quizzes ?? subject.quizScore ?? subject.quiz,
+      exams: subject.exams ?? subject.examScore ?? subject.exam
+    } : {};
+
+    quarters[quarterKey] = {
+      writtenWork: {
+        quizzes: normalizeScoreList(sourceQuarter.writtenWork?.quizzes ?? sourceQuarter.quizzes ?? sourceQuarter.quizScore ?? sourceQuarter.quiz ?? legacyScores.quizzes),
+        longTests: normalizeScoreList(sourceQuarter.writtenWork?.longTests)
+      },
+      performanceTask: {
+        projects: normalizeScoreList(sourceQuarter.performanceTask?.projects),
+        activities: normalizeScoreList(sourceQuarter.performanceTask?.activities ?? sourceQuarter.activities ?? sourceQuarter.activityScore ?? sourceQuarter.activity ?? legacyScores.activities)
+      },
+      finalExam: {
+        exams: normalizeScoreList(sourceQuarter.finalExam?.exams ?? sourceQuarter.exams ?? sourceQuarter.examScore ?? sourceQuarter.exam ?? legacyScores.exams)
+      }
+    };
+
+    return quarters;
+  }, {});
+};
+
+const normalizeGradeWeights = (weights = {}) => ({
+  writtenWork: Math.max(0, toNumber(weights.writtenWork) ?? DEFAULT_GRADE_WEIGHTS.writtenWork),
+  performanceTask: Math.max(0, toNumber(weights.performanceTask) ?? DEFAULT_GRADE_WEIGHTS.performanceTask),
+  finalExam: Math.max(0, toNumber(weights.finalExam) ?? DEFAULT_GRADE_WEIGHTS.finalExam)
+});
 
 export const toNumber = (value) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -104,24 +149,29 @@ export const normalizeSubjects = (subjectSource, fallbackTeacher = "") => {
       const q2 = toNumber(subject.q2 ?? subject.quarter2 ?? subject.midterm);
       const q3 = toNumber(subject.q3 ?? subject.quarter3 ?? subject.prefinal);
       const q4 = toNumber(subject.q4 ?? subject.quarter4 ?? subject.final);
-      const activities = normalizeScoreList(subject.activities ?? subject.activityScore ?? subject.activity);
-      const quizzes = normalizeScoreList(subject.quizzes ?? subject.quizScore ?? subject.quiz);
-      const exams = normalizeScoreList(subject.exams ?? subject.examScore ?? subject.exam);
+      const quarters = normalizeQuarterScores(subject);
+      const gradeWeights = normalizeGradeWeights(subject.gradeWeights);
       const finalGrade = toNumber(subject.finalGrade ?? subject.grade ?? subject.average)
         ?? average([q1, q2, q3, q4]);
+      const parsedAttendance = toNumber(subject.attendanceRate ?? subject.attendance);
+      const attendanceRate = parsedAttendance === null ? null : clamp(parsedAttendance, 0, 100);
 
       return {
         id: subject.id || key || slugify(subject.name),
         name: subject.name || subject.subject || "Untitled Subject",
         teacher: subject.teacher || fallbackTeacher || "Teacher not assigned",
-        activities,
-        quizzes,
-        exams,
+        gradeWeights,
+        activities: quarters.q1.performanceTask.activities,
+        quizzes: quarters.q1.writtenWork.quizzes,
+        exams: quarters.q1.finalExam.exams,
+        quarters,
         q1,
         q2,
         q3,
         q4,
         finalGrade,
+        attendanceRate,
+        attendanceLabel: attendanceRate === null ? "N/A" : `${attendanceRate}%`,
         status: subject.status || (finalGrade !== null && finalGrade >= PASSING_GRADE ? "Passed" : "Needs Attention")
       };
     })
@@ -183,10 +233,11 @@ export const buildStudentRecord = ({ student, users, classes }) => {
   const q4Average = average(subjects.map((subject) => subject.q4));
   const gpa = toNumber(student.gpa) ?? average(subjectFinalGrades) ?? average([q1Average, q2Average, q3Average, q4Average]);
   const parsedAttendance = toNumber(student.attendanceRate ?? student.attendance);
-  const attendanceRate = parsedAttendance === null ? null : clamp(parsedAttendance, 0, 100);
+  const subjectAttendanceRate = average(subjects.map((subject) => subject.attendanceRate));
+  const attendanceRate = parsedAttendance === null ? subjectAttendanceRate : clamp(parsedAttendance, 0, 100);
   const attendanceLabel = attendanceRate === null ? "N/A" : `${attendanceRate}%`;
   const performanceStatus = student.performanceStatus || computePerformanceStatus({ gpa, attendanceRate, subjects });
-  const className = linkedClass?.name || linkedClass?.section || student.section || student.className || "Unassigned Class";
+  const className = linkedClass?.name || linkedClass?.section || student.section || student.className || "Unassigned Section";
   const gradeLevel = linkedClass?.gradeLevel || student.gradeLevel || linkedUser.gradeLevel || "";
   const updatedAt = student.updatedAt || student.lastUpdated || student.modifiedAt || "";
   const teacherRemarks = student.teacherRemarks || student.remarks || "";
