@@ -24,6 +24,39 @@ const slugify = (value) => {
     .replace(/^-|-$/g, "");
 };
 
+const normalizeNamePart = (value) => String(value || "").trim();
+
+const formatMiddleInitial = (middleValue) => {
+  const trimmedValue = normalizeNamePart(middleValue);
+  if (!trimmedValue) return "";
+
+  const initial = trimmedValue[0].toUpperCase();
+  return `${initial}.`;
+};
+
+export const formatPersonName = ({
+  firstName,
+  lastName,
+  middleInitial,
+  middleName,
+  name,
+  displayName,
+  fallback = "Unnamed"
+} = {}) => {
+  const first = normalizeNamePart(firstName);
+  const last = normalizeNamePart(lastName);
+  const middle = formatMiddleInitial(middleInitial || middleName);
+
+  if (last && first) {
+    return `${last}, ${first}${middle ? ` ${middle}` : ""}`;
+  }
+
+  if (last) return last;
+  if (first) return `${first}${middle ? ` ${middle}` : ""}`;
+
+  return normalizeNamePart(name) || normalizeNamePart(displayName) || fallback;
+};
+
 const normalizeScoreList = (value) => {
   const normalizeScoreEntry = (score) => {
     if (typeof score === "string" && !score.trim()) return "";
@@ -254,10 +287,18 @@ export const buildStudentRecord = ({ student, users, classes }) => {
   }
 
   const summaryLine = `GPA ${gpa ?? "N/A"} | Attendance ${attendanceLabel}`;
+  const studentName = formatPersonName({
+    firstName: student.firstName || linkedUser.firstName,
+    lastName: student.lastName || linkedUser.lastName,
+    middleInitial: student.middleInitial || linkedUser.middleInitial,
+    middleName: student.middleName || linkedUser.middleName,
+    name: student.name || student.displayName || linkedUser.displayName || linkedUser.name || linkedUser.email,
+    fallback: "Unnamed Student"
+  });
 
   return {
     id: student.id,
-    name: student.name || student.displayName || linkedUser.displayName || linkedUser.name || linkedUser.email || "Unnamed Student",
+    name: studentName,
     email: student.email || linkedUser.email || "",
     studentNumber: student.studentNumber || student.studentIdNumber || student.lrn || linkedUser.studentNumber || "",
     parentId: student.parentId || linkedUser.parentId || null,

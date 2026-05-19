@@ -8,6 +8,7 @@ import {
   buildStudentRecord,
   clamp,
   computePerformanceStatus,
+  formatPersonName,
   formatShortDate,
   normalizeCollection,
   toNumber
@@ -412,7 +413,9 @@ export const SchoolDataProvider = ({ children }) => {
     };
   }, [authLoading, currentUser, userData?.role]);
 
-  const enrichedStudents = rawStudents.map((student) => buildStudentRecord({ student, users, classes }));
+  const enrichedStudents = rawStudents
+    .map((student) => buildStudentRecord({ student, users, classes }))
+    .sort((left, right) => String(left.name).localeCompare(String(right.name)));
 
   const findStudentById = (studentId) => {
     return enrichedStudents.find((student) => student.id === studentId) || null;
@@ -584,7 +587,16 @@ export const SchoolDataProvider = ({ children }) => {
     const isNewStudent = !studentId;
     const trimmedStudentNumber = String(payload.studentNumber || "").trim();
     const trimmedStudentEmail = String(payload.email || "").trim();
-    const trimmedStudentName = payload.name?.trim() || "Unnamed Student";
+    const trimmedFirstName = String(payload.firstName || "").trim();
+    const trimmedLastName = String(payload.lastName || "").trim();
+    const trimmedMiddleInitial = String(payload.middleInitial || payload.middleName || "").trim();
+    const trimmedStudentName = formatPersonName({
+      firstName: trimmedFirstName,
+      lastName: trimmedLastName,
+      middleInitial: trimmedMiddleInitial,
+      name: payload.name,
+      fallback: "Unnamed Student"
+    });
     let targetStudentId = studentId;
 
     if (isNewStudent) {
@@ -722,6 +734,9 @@ export const SchoolDataProvider = ({ children }) => {
         [`students/${targetStudentId}`]: {
           ...existingStudentData,
           name: trimmedStudentName,
+          firstName: trimmedFirstName || existingStudent?.firstName || "",
+          lastName: trimmedLastName || existingStudent?.lastName || "",
+          middleInitial: trimmedMiddleInitial || existingStudent?.middleInitial || "",
           email: trimmedStudentEmail,
           studentNumber: trimmedStudentNumber || existingStudent?.studentNumber || "",
           parentName: payload.parentName?.trim() || "",
@@ -748,6 +763,9 @@ export const SchoolDataProvider = ({ children }) => {
           ...existingUserData,
           displayName: trimmedStudentName,
           name: trimmedStudentName,
+          firstName: trimmedFirstName || existingUser?.firstName || "",
+          lastName: trimmedLastName || existingUser?.lastName || "",
+          middleInitial: trimmedMiddleInitial || existingUser?.middleInitial || "",
           email: trimmedStudentEmail,
           role: "student",
           studentId: targetStudentId,
@@ -948,10 +966,31 @@ export const SchoolDataProvider = ({ children }) => {
       return message.includes("temporarily limiting account creation") || message.includes("too-many-requests");
     };
 
-    for (const [index, row] of rows.entries()) {
+    const sortedRows = [...rows].sort((left, right) => (
+      formatPersonName({
+        firstName: left.firstName,
+        lastName: left.lastName,
+        middleInitial: left.middleInitial,
+        fallback: ""
+      }).localeCompare(formatPersonName({
+        firstName: right.firstName,
+        lastName: right.lastName,
+        middleInitial: right.middleInitial,
+        fallback: ""
+      }))
+    ));
+
+    for (const [index, row] of sortedRows.entries()) {
       const rowNumber = row.rowNumber || index + 2;
       const firstName = String(row.firstName || "").trim();
       const lastName = String(row.lastName || "").trim();
+      const middleInitial = String(row.middleInitial || "").trim();
+      const formattedStudentName = formatPersonName({
+        firstName,
+        lastName,
+        middleInitial,
+        fallback: "Unnamed student"
+      });
       const studentNumber = String(row.studentNumber || "").trim();
       const gradeLevel = normalizeGradeLevel(row.gradeLevel);
       const section = String(row.section || "").trim();
@@ -975,7 +1014,7 @@ export const SchoolDataProvider = ({ children }) => {
       if (studentNumberKey && existingStudentNumbers.has(studentNumberKey)) {
         skipped.push({
           rowNumber,
-          name: [firstName, lastName].filter(Boolean).join(" ") || studentNumber,
+          name: formattedStudentName || studentNumber,
           studentNumber,
           reason: "Student ID number already exists."
         });
@@ -984,7 +1023,7 @@ export const SchoolDataProvider = ({ children }) => {
       if (studentNumberKey && seenStudentNumbers.has(studentNumberKey)) {
         skipped.push({
           rowNumber,
-          name: [firstName, lastName].filter(Boolean).join(" ") || studentNumber,
+          name: formattedStudentName || studentNumber,
           studentNumber,
           reason: "Student ID number is duplicated in this CSV."
         });
@@ -1007,14 +1046,17 @@ export const SchoolDataProvider = ({ children }) => {
       if (rowErrors.length) {
         failed.push({
           rowNumber,
-          name: [firstName, lastName].filter(Boolean).join(" ") || "Unnamed student",
+          name: formattedStudentName,
           reason: rowErrors.join(" ")
         });
         continue;
       }
 
       const buildImportPayload = (accountEmail) => ({
-        name: `${firstName} ${lastName}`.trim(),
+        name: formattedStudentName,
+        firstName,
+        lastName,
+        middleInitial,
         email: accountEmail,
         studentNumber,
         gradeLevel,
@@ -1037,7 +1079,7 @@ export const SchoolDataProvider = ({ children }) => {
         imported.push({
           rowNumber,
           studentId,
-          name: `${firstName} ${lastName}`.trim(),
+          name: formattedStudentName,
           className: matchedClass?.name || matchedClass?.section || "",
           email: accountEmail
         });
@@ -1075,7 +1117,7 @@ export const SchoolDataProvider = ({ children }) => {
 
               failed.push({
                 rowNumber,
-                name: `${firstName} ${lastName}`.trim(),
+                name: formattedStudentName,
                 reason: retryError?.message || importError?.message || "Student could not be imported."
               });
               continue;
@@ -1090,7 +1132,7 @@ export const SchoolDataProvider = ({ children }) => {
 
         failed.push({
           rowNumber,
-          name: `${firstName} ${lastName}`.trim(),
+          name: formattedStudentName,
           reason: importError?.message || "Student could not be imported."
         });
       }

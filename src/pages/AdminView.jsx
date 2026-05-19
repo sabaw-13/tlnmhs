@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { formatShortDate } from "../utils/reporting";
+import { formatPersonName, formatShortDate } from "../utils/reporting";
 import { useSchoolData } from "../context/SchoolDataContext";
 import StudentRecordModal from "../components/StudentRecordModal";
 import TeacherRecordModal from "../components/TeacherRecordModal";
@@ -8,7 +8,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import "./TeacherDashboard.css";
 
 const GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"];
-const BULK_STUDENT_TEMPLATE_HEADERS = "first name,last name,grade level,student id number,section,email";
+const BULK_STUDENT_TEMPLATE_HEADERS = "last name,first name,middle initial,grade level,student id number,section,email";
 
 const normalizeCsvHeader = (value) => String(value || "")
   .trim()
@@ -21,6 +21,9 @@ const CSV_HEADER_MAP = {
   lastname: "lastName",
   surname: "lastName",
   familyname: "lastName",
+  middleinitial: "middleInitial",
+  middle: "middleInitial",
+  middlename: "middleInitial",
   gradelevel: "gradeLevel",
   grade: "gradeLevel",
   studentidnumber: "studentNumber",
@@ -95,6 +98,13 @@ const parseStudentCsv = (text) => {
     })
     .filter((record) => Object.entries(record).some(([key, value]) => key !== "rowNumber" && String(value).trim()));
 };
+
+const getBulkStudentDisplayName = (row) => formatPersonName({
+  firstName: row.firstName,
+  lastName: row.lastName,
+  middleInitial: row.middleInitial,
+  fallback: "Unnamed student"
+});
 
 const AdminView = ({ section = "overview" }) => {
   const {
@@ -295,7 +305,8 @@ const AdminView = ({ section = "overview" }) => {
 
     try {
       const text = await file.text();
-      const rows = parseStudentCsv(text);
+      const rows = parseStudentCsv(text)
+        .sort((left, right) => getBulkStudentDisplayName(left).localeCompare(getBulkStudentDisplayName(right)));
 
       setBulkFileName(file.name);
       setBulkRows(rows);
@@ -1165,7 +1176,9 @@ const AdminView = ({ section = "overview" }) => {
                     {bulkRows.slice(0, 5).map((row) => (
                       <tr key={row.rowNumber}>
                         <td data-label="Row">{row.rowNumber}</td>
-                        <td data-label="Student">{row.firstName} {row.lastName}</td>
+                        <td data-label="Student">
+                          {getBulkStudentDisplayName(row)}
+                        </td>
                         <td data-label="Grade">{row.gradeLevel}</td>
                         <td data-label="Section">{row.section || "None"}</td>
                         <td data-label="ID Number">{row.studentNumber}</td>

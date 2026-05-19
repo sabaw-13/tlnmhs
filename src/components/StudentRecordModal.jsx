@@ -269,7 +269,7 @@ const StudentRecordModal = ({
                 type="text"
                 value={formData.name}
                 onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                placeholder="Enter student name"
+                placeholder="Last name, First name M."
                 disabled={lockIdentityFields}
                 required
               />
