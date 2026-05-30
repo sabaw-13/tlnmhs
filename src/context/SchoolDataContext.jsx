@@ -11,6 +11,8 @@ import {
   formatPersonName,
   formatShortDate,
   normalizeCollection,
+  normalizeStoredScoreEntry,
+  parseScoreEntry,
   toNumber
 } from "../utils/reporting";
 import { createManagedAccount, deleteManagedAccount, updateManagedAccount } from "../utils/adminAccounts";
@@ -18,7 +20,7 @@ import { createManagedAccount, deleteManagedAccount, updateManagedAccount } from
 const SchoolDataContext = createContext();
 const ATTENDED_ATTENDANCE_STATUSES = new Set(["present", "late", "excused"]);
 const CLASS_CODE_LENGTH = 6;
-const GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"];
+const DEFAULT_GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10"];
 const QUARTER_KEYS = ["q1", "q2", "q3", "q4"];
 const DEFAULT_GRADE_WEIGHTS = {
   writtenWork: 30,
@@ -26,17 +28,50 @@ const DEFAULT_GRADE_WEIGHTS = {
   finalExam: 20
 };
 
-const normalizeGradeLevel = (value) => {
+const normalizeLookupValue = (value) => String(value || "").trim().toLowerCase();
+
+const buildGradeLevelLabel = (value) => {
   const trimmedValue = String(value || "").trim();
   if (!trimmedValue) return "";
 
   const matchedGrade = trimmedValue.match(/\d+/)?.[0] || "";
-  const gradeLevel = matchedGrade ? `Grade ${matchedGrade}` : trimmedValue;
-
-  return GRADE_LEVEL_OPTIONS.includes(gradeLevel) ? gradeLevel : "";
+  return matchedGrade ? `Grade ${matchedGrade}` : trimmedValue;
 };
 
-const normalizeLookupValue = (value) => String(value || "").trim().toLowerCase();
+const sortGradeLevels = (gradeLevels = []) => {
+  return [...gradeLevels].sort((left, right) => {
+    const leftLabel = String(left || "").trim();
+    const rightLabel = String(right || "").trim();
+    const leftNumber = Number(leftLabel.match(/\d+/)?.[0] || NaN);
+    const rightNumber = Number(rightLabel.match(/\d+/)?.[0] || NaN);
+
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
+    }
+
+    if (Number.isFinite(leftNumber) && !Number.isFinite(rightNumber)) return -1;
+    if (!Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) return 1;
+
+    return leftLabel.localeCompare(rightLabel, undefined, { numeric: true, sensitivity: "base" });
+  });
+};
+
+const buildGradeLevelId = (value) => (
+  normalizeLookupValue(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+);
+
+const normalizeGradeLevel = (value, allowedOptions = DEFAULT_GRADE_LEVEL_OPTIONS) => {
+  const gradeLevel = buildGradeLevelLabel(value);
+  if (!gradeLevel) return "";
+
+  const normalizedAllowedOption = allowedOptions.find((option) => (
+    normalizeLookupValue(option) === normalizeLookupValue(gradeLevel)
+  ));
+
+  return normalizedAllowedOption || (allowedOptions.length ? "" : gradeLevel);
+};
 
 const buildSubjectKey = (value) => String(value || "")
   .trim()
@@ -44,13 +79,15 @@ const buildSubjectKey = (value) => String(value || "")
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-|-$/g, "");
 
-const normalizeScoreList = (value) => {
-  const normalizeScoreEntry = (score) => {
-    if (typeof score === "string" && !score.trim()) return "";
+const SCORE_ENTRY_KEYS = ["score", "earned", "value", "points", "total", "maxScore", "max", "over"];
+const isScoreEntryObject = (value) => (
+  Boolean(value)
+  && typeof value === "object"
+  && !Array.isArray(value)
+  && SCORE_ENTRY_KEYS.some((key) => Object.prototype.hasOwnProperty.call(value, key))
+);
 
-    const parsedScore = toNumber(score);
-    return Number.isFinite(parsedScore) ? parsedScore : "";
-  };
+const normalizeScoreList = (value) => {
   const trimTrailingBlanks = (scores) => {
     const nextScores = [...scores];
 
@@ -62,23 +99,29 @@ const normalizeScoreList = (value) => {
   };
 
   if (Array.isArray(value)) {
-    return trimTrailingBlanks(value.map(normalizeScoreEntry));
+    return trimTrailingBlanks(value.map(normalizeStoredScoreEntry));
   }
 
   if (value && typeof value === "object") {
-    return trimTrailingBlanks(Object.values(value).map(normalizeScoreEntry));
+    if (isScoreEntryObject(value)) {
+      return trimTrailingBlanks([normalizeStoredScoreEntry(value)]);
+    }
+
+    return trimTrailingBlanks(Object.values(value).map(normalizeStoredScoreEntry));
   }
 
   if (typeof value === "string" && value.includes(",")) {
-    return trimTrailingBlanks(value.split(",").map(normalizeScoreEntry));
+    return trimTrailingBlanks(value.split(",").map(normalizeStoredScoreEntry));
   }
 
-  const score = toNumber(value);
-  return Number.isFinite(score) ? [score] : [];
+  const score = normalizeStoredScoreEntry(value);
+  return score ? [score] : [];
 };
 
 const averageScores = (values = []) => {
-  const scores = normalizeScoreList(values).filter((value) => Number.isFinite(value));
+  const scores = normalizeScoreList(values)
+    .map((value) => parseScoreEntry(value)?.numericValue)
+    .filter((value) => Number.isFinite(value));
   if (!scores.length) return null;
 
   return scores.reduce((sum, value) => sum + value, 0) / scores.length;
@@ -237,7 +280,8 @@ export const useSchoolData = () => useContext(SchoolDataContext);
 export const SchoolDataProvider = ({ children }) => {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const [users, setUsers] = useState([]);
-  const [classes, setClasses] = useState([]);
+  const [rawGradeLevels, setRawGradeLevels] = useState([]);
+  const [rawClasses, setRawClasses] = useState([]);
   const [rawStudents, setRawStudents] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState({});
   const [parentAccountRequests, setParentAccountRequests] = useState([]);
@@ -246,6 +290,7 @@ export const SchoolDataProvider = ({ children }) => {
   const [error, setError] = useState("");
   const [savingStudentId, setSavingStudentId] = useState("");
   const [savingTeacherId, setSavingTeacherId] = useState("");
+  const [savingGradeLevelName, setSavingGradeLevelName] = useState("");
   const [savingAttendanceKey, setSavingAttendanceKey] = useState("");
   const [savingClass, setSavingClass] = useState(false);
   const [savingEnrollmentStudentId, setSavingEnrollmentStudentId] = useState("");
@@ -253,6 +298,26 @@ export const SchoolDataProvider = ({ children }) => {
   const assertAdminAccess = () => {
     if (userData?.role !== "admin") {
       throw new Error("Only admin accounts can manage student and teacher credentials.");
+    }
+  };
+
+  const shouldIgnoreManagedAccountDeleteError = (error) => {
+    const message = String(error?.message || "").trim().toLowerCase();
+
+    return message === "the request could not be completed."
+      || message.includes("user-not-found")
+      || message.includes("user not found");
+  };
+
+  const cleanupManagedAccountAfterRecordDelete = async ({ uid, role }) => {
+    try {
+      await deleteManagedAccount({ uid });
+    } catch (error) {
+      if (!shouldIgnoreManagedAccountDeleteError(error)) {
+        throw error;
+      }
+
+      console.warn(`Managed ${role} account cleanup skipped for ${uid}:`, error);
     }
   };
 
@@ -283,6 +348,11 @@ export const SchoolDataProvider = ({ children }) => {
     } catch (error) {
       const message = String(error?.message || "");
 
+      if (/request could not be completed|account management api is unavailable/i.test(message)) {
+        console.warn(`Skipping auth sync for ${uid}; account API is unavailable in this environment.`, error);
+        return null;
+      }
+
       if (/user[-\s]?not[-\s]?found|no user record/i.test(message)) {
         console.warn(`Skipping auth sync for missing account ${uid}.`, error);
         return null;
@@ -297,7 +367,8 @@ export const SchoolDataProvider = ({ children }) => {
 
     if (!currentUser) {
       setUsers([]);
-      setClasses([]);
+      setRawGradeLevels([]);
+      setRawClasses([]);
       setRawStudents([]);
       setAttendanceRecords({});
       setParentAccountRequests([]);
@@ -311,6 +382,7 @@ export const SchoolDataProvider = ({ children }) => {
     const shouldLoadParentStudentAccessRequests = ["admin", "parent"].includes(userData?.role);
     const initialState = {
       users: false,
+      gradeLevels: false,
       classes: false,
       students: false,
       attendance: false,
@@ -351,10 +423,19 @@ export const SchoolDataProvider = ({ children }) => {
       handleSubscriptionError
     );
 
+    const unsubscribeGradeLevels = onValue(
+      ref(db, "gradeLevels"),
+      (snapshot) => {
+        setRawGradeLevels(normalizeCollection(snapshot.val()));
+        markLoaded("gradeLevels");
+      },
+      handleSubscriptionError
+    );
+
     const unsubscribeClasses = onValue(
       ref(db, "classes"),
       (snapshot) => {
-        setClasses(normalizeCollection(snapshot.val()));
+        setRawClasses(normalizeCollection(snapshot.val()));
         markLoaded("classes");
       },
       handleSubscriptionError
@@ -405,6 +486,7 @@ export const SchoolDataProvider = ({ children }) => {
 
     return () => {
       unsubscribeUsers();
+      unsubscribeGradeLevels();
       unsubscribeClasses();
       unsubscribeStudents();
       unsubscribeAttendance();
@@ -413,8 +495,69 @@ export const SchoolDataProvider = ({ children }) => {
     };
   }, [authLoading, currentUser, userData?.role]);
 
+  const gradeLevelRecords = (() => {
+    const savedEntries = rawGradeLevels
+      .map((entry) => {
+        const name = normalizeGradeLevel(entry.name || entry.gradeLevel || entry.label, []);
+        if (!name) return null;
+
+        return {
+          ...entry,
+          name,
+          status: entry.status === "inactive" ? "inactive" : "active",
+          isDefault: false
+        };
+      })
+      .filter(Boolean);
+    const savedMap = new Map(savedEntries.map((entry) => [normalizeLookupValue(entry.name), entry]));
+
+    DEFAULT_GRADE_LEVEL_OPTIONS.forEach((gradeLevel) => {
+      if (savedMap.has(normalizeLookupValue(gradeLevel))) return;
+
+      savedEntries.push({
+        id: `default-${normalizeLookupValue(gradeLevel).replace(/[^a-z0-9]+/g, "-")}`,
+        name: gradeLevel,
+        status: "active",
+        isDefault: true
+      });
+    });
+
+    return savedEntries.sort((left, right) => {
+      if (left.status !== right.status) {
+        return left.status === "active" ? -1 : 1;
+      }
+
+      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+    });
+  })();
+  const gradeLevels = sortGradeLevels(
+    gradeLevelRecords
+      .filter((entry) => entry.status !== "inactive")
+      .map((entry) => entry.name)
+  );
+  const isManagedGradeLevel = (value) => Boolean(normalizeGradeLevel(value, gradeLevels));
+  const classes = rawClasses.filter((classroom) => isManagedGradeLevel(classroom.gradeLevel));
+  const juniorHighClassIds = new Set(classes.map((classroom) => classroom.id));
+  const nonJuniorHighClassIds = new Set(
+    rawClasses
+      .filter((classroom) => !isManagedGradeLevel(classroom.gradeLevel))
+      .map((classroom) => classroom.id)
+  );
+
   const enrichedStudents = rawStudents
     .map((student) => buildStudentRecord({ student, users, classes }))
+    .filter((student) => {
+      const sourceClassId = student.classId
+        || student.raw?.classId
+        || student.raw?.classKey
+        || student.raw?.sectionId
+        || null;
+
+      if (sourceClassId && nonJuniorHighClassIds.has(sourceClassId)) return false;
+      if (sourceClassId && juniorHighClassIds.has(sourceClassId)) return true;
+
+      return isManagedGradeLevel(student.gradeLevel || student.raw?.gradeLevel);
+    })
     .sort((left, right) => String(left.name).localeCompare(String(right.name)));
 
   const findStudentById = (studentId) => {
@@ -598,6 +741,7 @@ export const SchoolDataProvider = ({ children }) => {
       fallback: "Unnamed Student"
     });
     let targetStudentId = studentId;
+    const existingUserForSync = studentId ? users.find((user) => user.id === studentId) || null : null;
 
     if (isNewStudent) {
       if (userData?.role === "admin") {
@@ -620,11 +764,15 @@ export const SchoolDataProvider = ({ children }) => {
       } else {
         throw new Error("Teachers can only add existing students to their advisory section.");
       }
-    } else if (userData?.role === "admin" && users.some((user) => user.id === studentId)) {
+    } else if (userData?.role === "admin" && existingUserForSync) {
+      const existingDisplayName = existingUserForSync.displayName || existingUserForSync.name || "";
+      const hasEmailChanged = trimmedStudentEmail && trimmedStudentEmail !== existingUserForSync.email;
+      const hasNameChanged = trimmedStudentName && trimmedStudentName !== existingDisplayName;
+
       await syncManagedAccount({
         uid: studentId,
-        email: trimmedStudentEmail,
-        displayName: trimmedStudentName
+        email: hasEmailChanged ? trimmedStudentEmail : undefined,
+        displayName: hasNameChanged ? trimmedStudentName : undefined
       });
     }
 
@@ -654,10 +802,10 @@ export const SchoolDataProvider = ({ children }) => {
         throw new Error("Teachers can only add or edit students in their advisory section.");
       }
 
-      const normalizedStudentGradeLevel = normalizeGradeLevel(classroom?.gradeLevel)
-        || normalizeGradeLevel(payload.gradeLevel)
-        || normalizeGradeLevel(existingStudent?.gradeLevel)
-        || normalizeGradeLevel(existingUser?.gradeLevel);
+      const normalizedStudentGradeLevel = normalizeGradeLevel(classroom?.gradeLevel, gradeLevels)
+        || normalizeGradeLevel(payload.gradeLevel, gradeLevels)
+        || normalizeGradeLevel(existingStudent?.gradeLevel, gradeLevels)
+        || normalizeGradeLevel(existingUser?.gradeLevel, gradeLevels);
 
       if (userData?.role === "admin" && !normalizedStudentGradeLevel) {
         throw new Error("Select a grade level for this student.");
@@ -836,7 +984,7 @@ export const SchoolDataProvider = ({ children }) => {
 
     const now = new Date().toISOString();
     const className = classroom.name || classroom.section || "";
-    const gradeLevel = normalizeGradeLevel(classroom.gradeLevel || existingStudent?.gradeLevel || existingUser?.gradeLevel);
+    const gradeLevel = normalizeGradeLevel(classroom.gradeLevel || existingStudent?.gradeLevel || existingUser?.gradeLevel, gradeLevels);
     const studentName = existingStudent?.name
       || existingUser?.displayName
       || existingUser?.name
@@ -992,7 +1140,7 @@ export const SchoolDataProvider = ({ children }) => {
         fallback: "Unnamed student"
       });
       const studentNumber = String(row.studentNumber || "").trim();
-      const gradeLevel = normalizeGradeLevel(row.gradeLevel);
+      const gradeLevel = normalizeGradeLevel(row.gradeLevel, gradeLevels);
       const section = String(row.section || "").trim();
       const preferredEmail = String(row.email || "").trim();
       let { email } = resolveImportEmail({
@@ -1006,7 +1154,7 @@ export const SchoolDataProvider = ({ children }) => {
 
       if (!firstName) rowErrors.push("First name is required.");
       if (!lastName) rowErrors.push("Last name is required.");
-      if (!gradeLevel) rowErrors.push("Grade level must be Grade 7, 8, 9, 10, 11, or 12.");
+      if (!gradeLevel) rowErrors.push("Grade level must match an active grade level.");
       if (!studentNumber) rowErrors.push("Student ID number is required.");
       if (studentNumber && studentNumber.length < 6) {
         rowErrors.push("Student ID number must be at least 6 characters for the temporary password.");
@@ -1034,7 +1182,7 @@ export const SchoolDataProvider = ({ children }) => {
       let matchedClass = null;
       if (section) {
         matchedClass = classes.find((classroom) => (
-          normalizeGradeLevel(classroom.gradeLevel) === gradeLevel
+          normalizeGradeLevel(classroom.gradeLevel, gradeLevels) === gradeLevel
           && normalizeLookupValue(classroom.section || classroom.name) === normalizeLookupValue(section)
         )) || null;
 
@@ -1156,7 +1304,7 @@ export const SchoolDataProvider = ({ children }) => {
     }
 
     const sectionName = String(payload.section || "").trim();
-    const gradeLevel = normalizeGradeLevel(payload.gradeLevel);
+    const gradeLevel = normalizeGradeLevel(payload.gradeLevel, gradeLevels);
     const className = [gradeLevel, sectionName].filter(Boolean).join(" - ");
 
     if (!gradeLevel) {
@@ -1167,7 +1315,7 @@ export const SchoolDataProvider = ({ children }) => {
       throw new Error("Section name is required.");
     }
 
-    const existingClass = classId ? classes.find((classroom) => classroom.id === classId) || null : null;
+    const existingClass = classId ? rawClasses.find((classroom) => classroom.id === classId) || null : null;
     const targetClassId = classId || push(ref(db, "classes")).key;
     const requestedTeacher = payload.teacherId
       ? teacherUsers.find((teacher) => teacher.id === payload.teacherId) || null
@@ -1178,13 +1326,13 @@ export const SchoolDataProvider = ({ children }) => {
     const now = new Date().toISOString();
     const classCode = normalizeClassCode(payload.classCode)
       || existingClass?.classCode
-      || generateClassCode(classes.map((classroom) => classroom.classCode));
+      || generateClassCode(rawClasses.map((classroom) => classroom.classCode));
 
     if (!targetClassId) {
       throw new Error("Section ID could not be generated.");
     }
 
-    if (hasDuplicateClassCode({ classes, classCode, exceptClassId: targetClassId })) {
+    if (hasDuplicateClassCode({ classes: rawClasses, classCode, exceptClassId: targetClassId })) {
       throw new Error("Section code must be unique.");
     }
 
@@ -1247,6 +1395,111 @@ export const SchoolDataProvider = ({ children }) => {
       return targetClassId;
     } finally {
       setSavingClass(false);
+    }
+  };
+
+  const saveGradeLevelRecord = async ({ name }) => {
+    if (!currentUser) {
+      throw new Error("Sign in before saving a grade level.");
+    }
+
+    assertAdminAccess();
+
+    const gradeLevelName = normalizeGradeLevel(name, []) || buildGradeLevelLabel(name);
+    if (!gradeLevelName) {
+      throw new Error("Grade level name is required.");
+    }
+
+    const existingGradeLevel = gradeLevelRecords.find((entry) => (
+      normalizeLookupValue(entry.name) === normalizeLookupValue(gradeLevelName)
+    )) || null;
+
+    if (existingGradeLevel?.status !== "inactive") {
+      throw new Error(`${gradeLevelName} already exists.`);
+    }
+
+    const gradeLevelId = (!existingGradeLevel?.isDefault && existingGradeLevel?.id)
+      || buildGradeLevelId(gradeLevelName)
+      || push(ref(db, "gradeLevels")).key;
+    const now = new Date().toISOString();
+
+    if (!gradeLevelId) {
+      throw new Error("Grade level ID could not be generated.");
+    }
+
+    setSavingGradeLevelName(gradeLevelName);
+
+    try {
+      await update(ref(db), {
+        [`gradeLevels/${gradeLevelId}`]: {
+          ...(existingGradeLevel && !existingGradeLevel.isDefault ? existingGradeLevel : {}),
+          name: gradeLevelName,
+          status: "active",
+          createdAt: existingGradeLevel?.createdAt || now,
+          createdBy: existingGradeLevel?.createdBy || currentUser.uid,
+          updatedAt: now,
+          updatedByName: userData?.displayName || userData?.email || currentUser.email || "System User",
+          updatedByRole: "admin"
+        }
+      });
+
+      return gradeLevelId;
+    } finally {
+      setSavingGradeLevelName("");
+    }
+  };
+
+  const deactivateGradeLevelRecord = async (name) => {
+    if (!currentUser) {
+      throw new Error("Sign in before updating a grade level.");
+    }
+
+    assertAdminAccess();
+
+    const gradeLevelName = normalizeGradeLevel(name, gradeLevels);
+    if (!gradeLevelName) {
+      throw new Error("Select a valid grade level.");
+    }
+
+    const hasAssignedSections = classes.some((classroom) => (
+      normalizeLookupValue(classroom.gradeLevel) === normalizeLookupValue(gradeLevelName)
+    ));
+
+    if (hasAssignedSections) {
+      throw new Error("Move or delete the sections under this grade level before deactivating it.");
+    }
+
+    const existingGradeLevel = gradeLevelRecords.find((entry) => (
+      normalizeLookupValue(entry.name) === normalizeLookupValue(gradeLevelName)
+    )) || null;
+    const gradeLevelId = (!existingGradeLevel?.isDefault && existingGradeLevel?.id)
+      || buildGradeLevelId(gradeLevelName)
+      || push(ref(db, "gradeLevels")).key;
+    const now = new Date().toISOString();
+
+    if (!gradeLevelId) {
+      throw new Error("Grade level ID could not be generated.");
+    }
+
+    setSavingGradeLevelName(gradeLevelName);
+
+    try {
+      await update(ref(db), {
+        [`gradeLevels/${gradeLevelId}`]: {
+          ...(existingGradeLevel && !existingGradeLevel.isDefault ? existingGradeLevel : {}),
+          name: gradeLevelName,
+          status: "inactive",
+          createdAt: existingGradeLevel?.createdAt || now,
+          createdBy: existingGradeLevel?.createdBy || currentUser.uid,
+          updatedAt: now,
+          updatedByName: userData?.displayName || userData?.email || currentUser.email || "System User",
+          updatedByRole: "admin"
+        }
+      });
+
+      return gradeLevelId;
+    } finally {
+      setSavingGradeLevelName("");
     }
   };
 
@@ -1341,7 +1594,7 @@ export const SchoolDataProvider = ({ children }) => {
     const oldClassId = existingStudent?.classId || existingStudent?.classKey || existingStudent?.sectionId || existingUser?.classId || null;
     const now = new Date().toISOString();
     const className = classroom.name || classroom.section || "";
-    const gradeLevel = normalizeGradeLevel(classroom.gradeLevel || existingStudent?.gradeLevel || existingUser?.gradeLevel);
+    const gradeLevel = normalizeGradeLevel(classroom.gradeLevel || existingStudent?.gradeLevel || existingUser?.gradeLevel, gradeLevels);
     const teacherName = classroom.teacherName
       || classroom.adviserName
       || userData?.displayName
@@ -1920,7 +2173,7 @@ export const SchoolDataProvider = ({ children }) => {
       await update(ref(db), updates);
 
       if (studentUser) {
-        await deleteManagedAccount({ uid: targetStudentId });
+        await cleanupManagedAccountAfterRecordDelete({ uid: targetStudentId, role: "student" });
       }
 
       return targetStudentId;
@@ -1980,7 +2233,7 @@ export const SchoolDataProvider = ({ children }) => {
       await update(ref(db), updates);
 
       if (teacher) {
-        await deleteManagedAccount({ uid: targetTeacherId });
+        await cleanupManagedAccountAfterRecordDelete({ uid: targetTeacherId, role: "teacher" });
       }
 
       return targetTeacherId;
@@ -2022,7 +2275,7 @@ export const SchoolDataProvider = ({ children }) => {
     await update(ref(db), updates);
 
     if (parent) {
-      await deleteManagedAccount({ uid: targetParentId });
+      await cleanupManagedAccountAfterRecordDelete({ uid: targetParentId, role: "parent" });
     }
 
     return targetParentId;
@@ -2223,6 +2476,8 @@ export const SchoolDataProvider = ({ children }) => {
     loading,
     error,
     users,
+    gradeLevels,
+    gradeLevelRecords,
     classes,
     students: enrichedStudents,
     repositorySummary,
@@ -2237,6 +2492,7 @@ export const SchoolDataProvider = ({ children }) => {
     linkedStudents,
     savingStudentId,
     savingTeacherId,
+    savingGradeLevelName,
     savingAttendanceKey,
     savingClass,
     savingEnrollmentStudentId,
@@ -2249,6 +2505,8 @@ export const SchoolDataProvider = ({ children }) => {
     saveDailyAttendanceRecord,
     addStudentToClass,
     importBulkStudents,
+    saveGradeLevelRecord,
+    deactivateGradeLevelRecord,
     saveClassRecord,
     createClassRecord,
     requestClassJoin,

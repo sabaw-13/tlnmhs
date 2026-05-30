@@ -7,6 +7,25 @@ import { db } from "../firebase";
 import "./Login.css";
 
 const normalizeLookupValue = (value) => String(value || "").trim().toLowerCase();
+const DEFAULT_GRADE_LEVELS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10"];
+const buildGradeLevelLabel = (value) => {
+  const trimmedValue = String(value || "").trim();
+  if (!trimmedValue) return "";
+
+  const matchedGrade = trimmedValue.match(/\d+/)?.[0] || "";
+  return matchedGrade ? `Grade ${matchedGrade}` : trimmedValue;
+};
+
+const normalizeGradeLevel = (value, allowedGradeLevels = DEFAULT_GRADE_LEVELS) => {
+  const gradeLevel = buildGradeLevelLabel(value);
+  if (!gradeLevel) return "";
+
+  const matchingGradeLevel = allowedGradeLevels.find((option) => (
+    normalizeLookupValue(option) === normalizeLookupValue(gradeLevel)
+  ));
+
+  return matchingGradeLevel || (allowedGradeLevels.length ? "" : gradeLevel);
+};
 
 const getStudentNumberCandidates = (student) => [
   student?.studentNumber,
@@ -14,6 +33,8 @@ const getStudentNumberCandidates = (student) => [
   student?.lrn,
   student?.idNumber
 ].map(normalizeLookupValue).filter(Boolean);
+
+const getStudentClassId = (student) => student?.classId || student?.classKey || student?.sectionId || "";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -64,10 +85,51 @@ const Login = () => {
 
     const studentsSnapshot = await get(ref(db, "students"));
     const students = studentsSnapshot.val() || {};
+    let classEntries = [];
+    let activeGradeLevels = DEFAULT_GRADE_LEVELS;
 
-    return Object.values(students).some((student) => (
-      getStudentNumberCandidates(student).includes(normalizedStudentNumber)
-    ));
+    try {
+      const classesSnapshot = await get(ref(db, "classes"));
+      classEntries = Object.entries(classesSnapshot.val() || {});
+    } catch (classesError) {
+      console.warn("Section data could not be checked while verifying parent request.", classesError);
+    }
+
+    try {
+      const gradeLevelsSnapshot = await get(ref(db, "gradeLevels"));
+      const gradeLevelEntries = Object.values(gradeLevelsSnapshot.val() || {})
+        .filter((entry) => entry?.status !== "inactive")
+        .map((entry) => normalizeGradeLevel(entry?.name || entry?.gradeLevel || entry?.label, []))
+        .filter(Boolean);
+
+      activeGradeLevels = Array.from(new Set([...DEFAULT_GRADE_LEVELS, ...gradeLevelEntries]));
+    } catch (gradeLevelsError) {
+      console.warn("Grade level data could not be checked while verifying parent request.", gradeLevelsError);
+    }
+
+    const juniorHighClassIds = new Set(
+      classEntries
+        .filter(([, classroom]) => normalizeGradeLevel(classroom?.gradeLevel, activeGradeLevels))
+        .map(([classId]) => classId)
+    );
+    const nonJuniorHighClassIds = new Set(
+      classEntries
+        .filter(([, classroom]) => !normalizeGradeLevel(classroom?.gradeLevel, activeGradeLevels))
+        .map(([classId]) => classId)
+    );
+
+    return Object.values(students).some((student) => {
+      const classId = getStudentClassId(student);
+      const hasExplicitGradeLevel = Boolean(String(student?.gradeLevel || "").trim());
+      const isJuniorHighStudent = normalizeGradeLevel(student?.gradeLevel, activeGradeLevels)
+        || juniorHighClassIds.has(classId)
+        || (!hasExplicitGradeLevel && !classEntries.length);
+
+      if (classId && nonJuniorHighClassIds.has(classId)) return false;
+      if (hasExplicitGradeLevel && !normalizeGradeLevel(student?.gradeLevel, activeGradeLevels)) return false;
+
+      return isJuniorHighStudent && getStudentNumberCandidates(student).includes(normalizedStudentNumber);
+    });
   };
 
   const submitParentRequestDirectly = async ({ name, email, password, studentNumber }) => {
@@ -127,7 +189,7 @@ const Login = () => {
           body: JSON.stringify(requestPayload)
         }));
       } catch (apiError) {
-        if (apiError?.status && apiError.status < 500) {
+        if (apiError?.status && apiError.status < 500 && ![404, 405].includes(apiError.status)) {
           throw apiError;
         }
 
@@ -152,7 +214,7 @@ const Login = () => {
   return (
     <div className="login-container">
       <div className="login-card">
-        <h1>TLNMHS Progress Tracker</h1>
+        <h1>TLNMHS</h1>
         {!showParentRequest ? (
           <form onSubmit={handleSubmit}>
             {authError && <div className="error-message">{authError}</div>}
@@ -182,7 +244,7 @@ const Login = () => {
                   type="button"
                   aria-label={isPasswordVisible ? "Hide password" : "Show password"}
                   aria-pressed={isPasswordVisible}
-                  onClick={() => setIsPasswordVisible((currentValue) => !currentValue)}
+                  onClick={() => setIsPasswordVisible((v) => !v)}
                 >
                   {isPasswordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>

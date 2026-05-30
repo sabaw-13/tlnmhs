@@ -1,33 +1,42 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
-const formatScoreList = (scores) => {
-  if (!Array.isArray(scores) || !scores.length) return "N/A";
-
-  return scores
-    .map((score, index) => `${index + 1}: ${score === "" || score === null || score === undefined ? "-" : score}`)
-    .join(", ");
-};
 const QUARTER_OPTIONS = [
   { key: "q1", label: "Q1" },
   { key: "q2", label: "Q2" },
   { key: "q3", label: "Q3" },
   { key: "q4", label: "Q4" }
 ];
-const formatQuarterScores = (subject, quarterKey) => {
-  const quarterScores = subject.quarters?.[quarterKey] || {};
-
-  return [
-    `Quiz ${formatScoreList(quarterScores.writtenWork?.quizzes ?? quarterScores.quizzes)}`,
-    `Long Test ${formatScoreList(quarterScores.writtenWork?.longTests)}`,
-    `Project ${formatScoreList(quarterScores.performanceTask?.projects)}`,
-    `Activity ${formatScoreList(quarterScores.performanceTask?.activities ?? quarterScores.activities)}`,
-    `Final Exam ${formatScoreList(quarterScores.finalExam?.exams ?? quarterScores.exams)}`
-  ].join(" | ");
+const ATTENDANCE_PAGE_SIZE = 10;
+const formatAttendanceStatus = (status) => {
+  switch (String(status || "").toLowerCase()) {
+    case "present":
+      return "Present";
+    case "absent":
+      return "Absent";
+    case "late":
+      return "Tardy";
+    case "excused":
+      return "Excused";
+    case "unexcused":
+      return "Unexcused";
+    case "no-class":
+      return "No Class";
+    default:
+      return "Not Marked";
+  }
 };
+const getSubjectSnapshotGrade = (subject) => (
+  subject.finalGrade
+  ?? subject.q4
+  ?? subject.q3
+  ?? subject.q2
+  ?? subject.q1
+  ?? "N/A"
+);
 
 const StudentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -36,11 +45,14 @@ const StudentView = ({ section = "overview" }) => {
     currentStudent,
     loading,
     error,
-    requestClassJoin
+    requestClassJoin,
+    getClassAttendanceRecords
   } = useSchoolData();
   const [classCode, setClassCode] = useState("");
   const [joinFeedback, setJoinFeedback] = useState(null);
   const [joiningClass, setJoiningClass] = useState(false);
+  const [attendanceSubjectFilter, setAttendanceSubjectFilter] = useState("");
+  const [attendancePage, setAttendancePage] = useState(1);
   const isDashboardSection = section === "dashboard" || section === "overview";
 
   const pendingRequest = classes
@@ -110,6 +122,15 @@ const StudentView = ({ section = "overview" }) => {
     </form>
   );
 
+  useEffect(() => {
+    setAttendanceSubjectFilter("");
+    setAttendancePage(1);
+  }, [currentStudent?.id]);
+
+  useEffect(() => {
+    setAttendancePage(1);
+  }, [attendanceSubjectFilter]);
+
   if (loading) return <div className="loading-container">Loading academic records...</div>;
   if (error) return <div className="error-container">{error}</div>;
   if (!currentStudent) {
@@ -127,6 +148,39 @@ const StudentView = ({ section = "overview" }) => {
   const focusSubjects = [...currentStudent.subjects]
     .sort((left, right) => (left.finalGrade ?? 0) - (right.finalGrade ?? 0))
     .slice(0, 3);
+  const subjectGradeSnapshot = currentStudent.subjects.map((subject) => ({
+    id: subject.id,
+    name: subject.name,
+    grade: getSubjectSnapshotGrade(subject)
+  }));
+  const attendanceReportRows = currentStudent.classId
+    ? currentStudent.subjects
+      .flatMap((subject) => (
+        getClassAttendanceRecords(currentStudent.classId, subject.name).map((record) => ({
+          id: `${subject.id}-${record.date}`,
+          date: record.date,
+          subject: subject.name,
+          status: record.status === "no-class"
+            ? "No Class"
+            : formatAttendanceStatus(record.records?.[currentStudent.id]?.status),
+          notes: record.status === "no-class"
+            ? (record.noClassReason || "No class")
+            : (record.records?.[currentStudent.id]?.remarks || "")
+        }))
+      ))
+      .filter((row) => row.status && row.status !== "Not Marked")
+      .sort((left, right) => String(right.date).localeCompare(String(left.date)))
+    : [];
+  const attendanceSubjectOptions = [...new Set(attendanceReportRows.map((row) => row.subject))];
+  const filteredAttendanceRows = attendanceSubjectFilter
+    ? attendanceReportRows.filter((row) => row.subject === attendanceSubjectFilter)
+    : attendanceReportRows;
+  const attendanceTotalPages = Math.max(1, Math.ceil(filteredAttendanceRows.length / ATTENDANCE_PAGE_SIZE));
+  const currentAttendancePage = Math.min(attendancePage, attendanceTotalPages);
+  const paginatedAttendanceRows = filteredAttendanceRows.slice(
+    (currentAttendancePage - 1) * ATTENDANCE_PAGE_SIZE,
+    currentAttendancePage * ATTENDANCE_PAGE_SIZE
+  );
 
   return (
     <div className="student-view">
@@ -157,20 +211,18 @@ const StudentView = ({ section = "overview" }) => {
                 <h3>Live Progress Snapshot</h3>
                 {currentStudent.className && <span className="meta-badge">{currentStudent.className}</span>}
               </div>
-              <div className="report-strip">
-                <div>
-                  <span>Q1 Average</span>
-                  <strong>{currentStudent.q1Average ?? "N/A"}</strong>
+              {subjectGradeSnapshot.length ? (
+                <div className="report-strip">
+                  {subjectGradeSnapshot.map((subject) => (
+                    <div key={subject.id}>
+                      <span>{subject.name}</span>
+                      <strong>{subject.grade}</strong>
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <span>Q2 Average</span>
-                  <strong>{currentStudent.q2Average ?? "N/A"}</strong>
-                </div>
-                <div>
-                  <span>Last Update</span>
-                  <strong>{currentStudent.updatedLabel}</strong>
-                </div>
-              </div>
+              ) : (
+                <p className="empty-copy">No subject grades available yet.</p>
+              )}
               <p className="mt-4">{currentStudent.teacherRemarks || "No teacher note yet."}</p>
             </div>
 
@@ -193,40 +245,21 @@ const StudentView = ({ section = "overview" }) => {
               )}
             </div>
           </div>
-
-          <div className="panel">
-            <h3>Recent Updates</h3>
-            {currentStudent.recentActivity.length ? (
-              <ul className="stack-list">
-                {currentStudent.recentActivity.map((activity, index) => (
-                  <li key={`${activity.date}-${index}`} className="list-row">
-                    <div>
-                      <strong>{activity.activity}</strong>
-                      <p>{activity.remarks || activity.result}</p>
-                    </div>
-                    <span>{activity.date}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="empty-copy">No recent updates.</p>
-            )}
-          </div>
         </>
       )}
 
       {section === "grades" && (
         <div className="panel">
           <h3>My Academic Record</h3>
-          <table className="data-table">
+          <table className="data-table student-academic-table">
             <thead>
               <tr>
                 <th>Subject</th>
                 <th>Teacher</th>
-                <th>Q1 Scores</th>
-                <th>Q2 Scores</th>
-                <th>Q3 Scores</th>
-                <th>Q4 Scores</th>
+                <th>Quarter 1</th>
+                <th>Quarter 2</th>
+                <th>Quarter 3</th>
+                <th>Quarter 4</th>
                 <th>Final Grade</th>
                 <th>Attendance</th>
                 <th>Status</th>
@@ -238,7 +271,11 @@ const StudentView = ({ section = "overview" }) => {
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
                   {QUARTER_OPTIONS.map((quarter) => (
-                    <td key={quarter.key} data-label={`${quarter.label} Scores`}>{formatQuarterScores(subject, quarter.key)}</td>
+                    <td key={quarter.key} data-label={quarter.label}>
+                      <div className="quarter-score-summary">
+                        <strong>{subject[quarter.key] ?? "N/A"}</strong>
+                      </div>
+                    </td>
                   ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
                   <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
@@ -256,47 +293,70 @@ const StudentView = ({ section = "overview" }) => {
       )}
 
       {section === "attendance" && (
-        <div className="insight-grid">
-          <div className="panel">
-            <h3>Attendance Overview</h3>
-            <div className="progress-track large">
-              <div className="progress-fill" style={{ width: `${currentStudent.attendanceRate || 0}%` }} />
+        <div className="panel">
+          <div className="panel-header">
+            <h3>Attendance Report</h3>
+          </div>
+          <div className="table-filter-bar report-table-controls">
+            <label className="selector-field">
+              <span>Subject</span>
+              <select
+                value={attendanceSubjectFilter}
+                onChange={(event) => setAttendanceSubjectFilter(event.target.value)}
+              >
+                <option value="">All Subjects</option>
+                {attendanceSubjectOptions.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={currentAttendancePage <= 1}
+                onClick={() => setAttendancePage((page) => Math.max(1, page - 1))}
+              >
+                Previous
+              </button>
+              <span>Page {currentAttendancePage} of {attendanceTotalPages}</span>
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={currentAttendancePage >= attendanceTotalPages}
+                onClick={() => setAttendancePage((page) => Math.min(attendanceTotalPages, page + 1))}
+              >
+                Next
+              </button>
             </div>
-            <p className="mt-4">Current attendance: <strong>{currentStudent.attendanceLabel}</strong></p>
-            {currentStudent.subjects.length > 0 && (
-              <table className="data-table mt-4">
-                <thead>
-                  <tr>
-                    <th>Subject</th>
-                    <th>Attendance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentStudent.subjects.map((subject) => (
-                    <tr key={subject.id}>
-                      <td data-label="Subject">{subject.name}</td>
-                      <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
           </div>
 
-          <div className="panel">
-            <h3>Alerts</h3>
-            {currentStudent.alerts.length ? (
-              <ul className="stack-list">
-                {currentStudent.alerts.map((alert) => (
-                  <li key={alert} className="list-row">
-                    <strong>{alert}</strong>
-                  </li>
+          {filteredAttendanceRows.length ? (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Subject</th>
+                  <th>Status</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedAttendanceRows.map((row) => (
+                  <tr key={row.id}>
+                    <td data-label="Date">{row.date}</td>
+                    <td data-label="Subject">{row.subject}</td>
+                    <td data-label="Status">{row.status}</td>
+                    <td data-label="Notes">{row.notes || "-"}</td>
+                  </tr>
                 ))}
-              </ul>
-            ) : (
-              <p className="empty-copy">No active alerts.</p>
-            )}
-          </div>
+              </tbody>
+            </table>
+          ) : (
+            <p className="empty-copy">No attendance report available yet.</p>
+          )}
         </div>
       )}
     </div>

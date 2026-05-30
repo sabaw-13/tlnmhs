@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
-import { formatShortDate } from "../utils/reporting";
+import { formatShortDate, normalizeStoredScoreEntry, parseScoreEntry } from "../utils/reporting";
 import ConfirmDialog from "../components/ConfirmDialog";
 import StudentRecordModal from "../components/StudentRecordModal";
 import "./TeacherDashboard.css";
@@ -65,9 +65,13 @@ const normalizeWeightValue = (value) => {
   const parsedValue = Number(value);
   return Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : 0;
 };
+const getGradeWeightTotal = (weights = {}) => ASSESSMENT_CATEGORIES.reduce(
+  (sum, category) => sum + normalizeWeightValue(weights[category.key]),
+  0
+);
 const averageScores = (values = []) => {
   const scores = normalizeScoreArray(values)
-    .map((value) => Number(value))
+    .map((value) => parseScoreEntry(value)?.numericValue)
     .filter((value) => Number.isFinite(value));
 
   if (!scores.length) return null;
@@ -109,21 +113,18 @@ const getLocalDateValue = () => {
   return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
 };
 
-const getLocalMonthValue = () => getLocalDateValue().slice(0, 7);
-
-const getDaysInMonth = (monthValue) => {
-  const [year, month] = String(monthValue || "").split("-").map(Number);
-  if (!year || !month) return 31;
-
-  return new Date(year, month, 0).getDate();
-};
-
-const buildMonthDateValue = (monthValue, day) => `${monthValue}-${String(day).padStart(2, "0")}`;
-
 const formatDateLabel = (dateValue) => {
   if (!dateValue) return "Selected date";
 
   return formatShortDate(`${dateValue}T00:00:00`);
+};
+const isWeekendDate = (dateValue) => {
+  if (!dateValue) return false;
+
+  const date = new Date(`${dateValue}T00:00:00`);
+  const day = date.getDay();
+
+  return day === 0 || day === 6;
 };
 
 const getAttendanceStatusLabel = (status) => {
@@ -141,9 +142,9 @@ const buildSubjectKey = (value) => String(value || "")
   .replace(/^-|-$/g, "");
 
 const normalizeScoreArray = (value) => {
-  if (Array.isArray(value)) return value.map((score) => (score ?? "")).map(String);
+  if (Array.isArray(value)) return value.map((score) => normalizeStoredScoreEntry(score));
   if (value === null || value === undefined || value === "") return [""];
-  return [String(value)];
+  return [normalizeStoredScoreEntry(value)];
 };
 const normalizeOptionalScoreArray = (value) => {
   if (value === null || value === undefined || value === "") return [];
@@ -151,14 +152,34 @@ const normalizeOptionalScoreArray = (value) => {
 };
 
 const hasScoreValue = (value) => String(value ?? "").trim() !== "";
+const parseScoreParts = (value) => {
+  const parsedEntry = parseScoreEntry(value);
 
-const TeacherView = ({ section = "overview" }) => {
+  return {
+    score: parsedEntry?.scoreValue || "",
+    total: parsedEntry?.totalValue || ""
+  };
+};
+const buildScoreEntryValue = (scoreValue, totalValue) => {
+  const normalizedScore = String(scoreValue || "").trim();
+  const normalizedTotal = String(totalValue || "").trim();
+
+  if (!normalizedScore && !normalizedTotal) return "";
+  if (!normalizedTotal) return normalizedScore;
+  if (!normalizedScore) return `/${normalizedTotal}`;
+
+  return `${normalizedScore}/${normalizedTotal}`;
+};
+const noopHeaderActions = () => {};
+
+const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderActions }) => {
   const { userData, currentUser } = useAuth();
   const {
     error,
     loading,
     savingStudentId,
     savingTeacherId,
+    gradeLevels,
     savingAttendanceKey,
     classReports,
     teacherClassReports,
@@ -179,10 +200,7 @@ const TeacherView = ({ section = "overview" }) => {
   const [addingStudentToClass, setAddingStudentToClass] = useState(false);
   const [studentToAddId, setStudentToAddId] = useState("");
   const [attendanceDate, setAttendanceDate] = useState(getLocalDateValue);
-  const [attendanceMonth, setAttendanceMonth] = useState(getLocalMonthValue);
   const [dailyAttendanceDrafts, setDailyAttendanceDrafts] = useState({});
-  const [monthlyAttendanceDrafts, setMonthlyAttendanceDrafts] = useState({});
-  const [savingMonthlyAttendance, setSavingMonthlyAttendance] = useState(false);
   const [isNoClassDay, setIsNoClassDay] = useState(false);
   const [noClassReason, setNoClassReason] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
@@ -193,13 +211,14 @@ const TeacherView = ({ section = "overview" }) => {
   });
   const [subjectClassOverrides, setSubjectClassOverrides] = useState({});
   const [selectedSubjectName, setSelectedSubjectName] = useState("");
-  const [subjectSearch, setSubjectSearch] = useState("");
+  const [selectedSubjectClassId, setSelectedSubjectClassId] = useState("");
   const [subjectScoreDrafts, setSubjectScoreDrafts] = useState({});
   const [confirmState, setConfirmState] = useState(null);
   const [savingAllSubjectScores, setSavingAllSubjectScores] = useState(false);
   const [selectedScoreQuarter, setSelectedScoreQuarter] = useState("q1");
   const [assessmentCategory, setAssessmentCategory] = useState("writtenWork");
   const [assessmentSubcategory, setAssessmentSubcategory] = useState("quizzes");
+  const [assessmentTotalPoints, setAssessmentTotalPoints] = useState("");
   const [gradeWeights, setGradeWeights] = useState(DEFAULT_GRADE_WEIGHTS);
   const [showAssessmentModal, setShowAssessmentModal] = useState(false);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
@@ -226,31 +245,31 @@ const TeacherView = ({ section = "overview" }) => {
       ? uniqueClasses
       : [...uniqueClasses, classroom]
   ), []);
-  const sectionClassReports = section === "attendance" ? attendanceClassReports : teacherClassReports;
-  const selectedClass = sectionClassReports.find((classroom) => classroom.id === selectedClassId) || sectionClassReports[0] || null;
-  const students = selectedClass?.students || [];
-  const attendanceSubjectOptions = handledSubjects.filter((subject) => {
-    if (!selectedClass?.id) return true;
-
-    const classMap = getSubjectClassMap(subject);
+  const [selectedAttendanceSubjectName, setSelectedAttendanceSubjectName] = useState("");
+  const attendanceSubjectOptions = handledSubjects;
+  const attendanceVisibleClassReports = attendanceClassReports.filter((classroom) => {
+    if (!selectedAttendanceSubjectName) return true;
+    const classMap = getSubjectClassMap(selectedAttendanceSubjectName);
     const mappedClassIds = Object.keys(classMap).filter((classId) => classMap[classId]);
 
-    return !mappedClassIds.length || mappedClassIds.includes(selectedClass.id);
+    return !mappedClassIds.length || mappedClassIds.includes(classroom.id);
   });
+  const sectionClassReports = section === "attendance" ? attendanceVisibleClassReports : teacherClassReports;
+  const selectedClass = sectionClassReports.find((classroom) => classroom.id === selectedClassId) || sectionClassReports[0] || null;
+  const students = selectedClass?.students || [];
   const studentRosterKey = students.map((student) => student.id).join("|");
-  const [selectedAttendanceSubjectName, setSelectedAttendanceSubjectName] = useState("");
   const selectedAttendanceRecord = selectedClass
     && selectedAttendanceSubjectName
     ? getAttendanceRecord(selectedClass.id, attendanceDate, selectedAttendanceSubjectName)
     : null;
+  const isWeekendAttendanceDate = isWeekendDate(attendanceDate);
+  const effectiveIsNoClassDay = isNoClassDay;
+  const effectiveNoClassReason = effectiveIsNoClassDay
+    ? String(noClassReason || "").trim() || (isWeekendAttendanceDate ? "Weekend" : "")
+    : "";
   const selectedSubjectAttendanceRecords = selectedClass && selectedAttendanceSubjectName
     ? getClassAttendanceRecords(selectedClass.id, selectedAttendanceSubjectName)
     : [];
-  const attendanceMonthDays = Array.from({ length: getDaysInMonth(attendanceMonth) }, (_, index) => index + 1);
-  const monthlyAttendanceRecords = selectedSubjectAttendanceRecords.filter((record) => (
-    String(record.date || "").startsWith(`${attendanceMonth}-`)
-  ));
-  const monthlyAttendanceRecordSignature = monthlyAttendanceRecords.map((record) => JSON.stringify(record)).join("|");
   const getAttendanceRecordSummary = (record) => {
     if (record.status === "no-class") {
       return record.noClassReason ? `No class - ${record.noClassReason}` : "No class";
@@ -278,19 +297,36 @@ const TeacherView = ({ section = "overview" }) => {
   useEffect(() => {
     if (section !== "attendance") return;
 
-    if (!attendanceSubjectOptions.length) {
+    if (!handledSubjects.length) {
       setSelectedAttendanceSubjectName("");
       return;
     }
 
-    if (!selectedAttendanceSubjectName || !attendanceSubjectOptions.includes(selectedAttendanceSubjectName)) {
-      setSelectedAttendanceSubjectName(attendanceSubjectOptions[0]);
+    if (!selectedAttendanceSubjectName || !handledSubjects.includes(selectedAttendanceSubjectName)) {
+      setSelectedAttendanceSubjectName(handledSubjects[0]);
     }
-  }, [section, selectedClassId, attendanceSubjectOptions.join("|"), selectedAttendanceSubjectName]);
+  }, [handledSubjects, section, selectedAttendanceSubjectName]);
 
   useEffect(() => {
-    setIsNoClassDay(selectedAttendanceRecord?.status === "no-class");
-    setNoClassReason(selectedAttendanceRecord?.noClassReason || "");
+    if (!saveMessage) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setSaveMessage("");
+    }, 2800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [saveMessage]);
+
+  useEffect(() => {
+    const hasStoredRecord = Boolean(selectedAttendanceRecord);
+    const shouldDefaultToNoClass = selectedAttendanceRecord?.status === "no-class"
+      || (!hasStoredRecord && isWeekendAttendanceDate);
+
+    setIsNoClassDay(shouldDefaultToNoClass);
+    setNoClassReason(
+      selectedAttendanceRecord?.noClassReason
+      || (!hasStoredRecord && isWeekendAttendanceDate ? "Weekend" : "")
+    );
     setDailyAttendanceDrafts((currentDrafts) => {
       const nextDrafts = {};
 
@@ -306,41 +342,7 @@ const TeacherView = ({ section = "overview" }) => {
 
       return nextDrafts;
     });
-  }, [attendanceDate, selectedClassId, selectedAttendanceSubjectName, selectedAttendanceRecord, studentRosterKey]);
-
-  useEffect(() => {
-    if (section !== "attendance" || !selectedAttendanceSubjectName) {
-      setMonthlyAttendanceDrafts({});
-      return;
-    }
-
-    setMonthlyAttendanceDrafts((currentDrafts) => {
-      const nextDrafts = {};
-
-      students.forEach((student) => {
-        nextDrafts[student.id] = {};
-        attendanceMonthDays.forEach((day) => {
-          const date = buildMonthDateValue(attendanceMonth, day);
-          const record = monthlyAttendanceRecords.find((item) => item.date === date);
-
-          nextDrafts[student.id][day] = record?.records?.[student.id]?.status || "";
-        });
-      });
-
-      if (JSON.stringify(nextDrafts) === JSON.stringify(currentDrafts)) {
-        return currentDrafts;
-      }
-
-      return nextDrafts;
-    });
-  }, [
-    section,
-    attendanceMonth,
-    selectedClassId,
-    selectedAttendanceSubjectName,
-    studentRosterKey,
-    monthlyAttendanceRecordSignature
-  ]);
+  }, [attendanceDate, selectedClassId, selectedAttendanceSubjectName, selectedAttendanceRecord, studentRosterKey, isWeekendAttendanceDate]);
 
   useEffect(() => {
     const subjects = teacherProfile?.subjects?.length ? teacherProfile.subjects : [];
@@ -362,12 +364,6 @@ const TeacherView = ({ section = "overview" }) => {
   }, [assessmentCategory, assessmentSubcategory]);
 
   const studentsNeedingSupport = students.filter((student) => student.performanceStatus === "Needs Support");
-  const dailyPresentCount = isNoClassDay
-    ? 0
-    : students.filter((student) => ATTENDED_STATUSES.has(dailyAttendanceDrafts[student.id] || "present")).length;
-  const dailyAbsentCount = isNoClassDay
-    ? 0
-    : students.filter((student) => (dailyAttendanceDrafts[student.id] || "present") === "absent").length;
   const topPerformer = [...students]
     .filter((student) => Number.isFinite(student.gpa))
     .sort((left, right) => right.gpa - left.gpa)[0] || null;
@@ -406,11 +402,6 @@ const TeacherView = ({ section = "overview" }) => {
       return true;
     })
     .sort((left, right) => String(left.name).localeCompare(String(right.name)));
-  const subjectSearchTerm = subjectSearch.trim().toLowerCase();
-  const filteredHandledSubjects = handledSubjects.filter((subject) => (
-    !subjectSearchTerm || subject.toLowerCase().includes(subjectSearchTerm)
-  ));
-  const selectedSubjectKey = buildSubjectKey(selectedSubjectName);
   const selectedSubjectClassMap = getSubjectClassMap(selectedSubjectName);
   const selectedSubjectClassIds = Object.keys(selectedSubjectClassMap).filter((classId) => selectedSubjectClassMap[classId]);
   const selectedSubjectClasses = classReports.filter((classroom) => selectedSubjectClassIds.includes(classroom.id));
@@ -420,7 +411,10 @@ const TeacherView = ({ section = "overview" }) => {
       String(left.className).localeCompare(String(right.className))
       || String(left.name).localeCompare(String(right.name))
     ));
-  const subjectStudentGroups = subjectStudents.reduce((groups, student) => {
+  const visibleSubjectStudents = selectedSubjectClassId
+    ? subjectStudents.filter((student) => student.classId === selectedSubjectClassId)
+    : subjectStudents;
+  const subjectStudentGroups = visibleSubjectStudents.reduce((groups, student) => {
     const groupName = student.className || "Unassigned Section";
     groups[groupName] = [...(groups[groupName] || []), student];
     return groups;
@@ -461,6 +455,8 @@ const TeacherView = ({ section = "overview" }) => {
       )).join("-");
     }).join(":");
   }).join("|");
+  const gradeWeightTotal = getGradeWeightTotal(gradeWeights);
+  const isGradeWeightTotalValid = gradeWeightTotal === 100;
 
   useEffect(() => {
     if (!selectedSubjectName) return;
@@ -513,6 +509,38 @@ const TeacherView = ({ section = "overview" }) => {
     setShowSubjectModal(true);
     setSaveMessage("");
   };
+
+  useEffect(() => {
+    const availableClassIds = selectedSubjectClasses.map((classroom) => classroom.id);
+
+    if (!availableClassIds.length) {
+      setSelectedSubjectClassId("");
+      return;
+    }
+
+    if (selectedSubjectClassId && !availableClassIds.includes(selectedSubjectClassId)) {
+      setSelectedSubjectClassId("");
+    }
+  }, [selectedSubjectClassId, selectedSubjectClasses]);
+
+  useEffect(() => {
+    if (loading || error) {
+      setHeaderActions(null);
+      return () => setHeaderActions(null);
+    }
+
+    if (section === "subjects") {
+      setHeaderActions(
+        <button type="button" className="primary-btn" onClick={openSubjectModal}>
+          Add Subject
+        </button>
+      );
+    } else {
+      setHeaderActions(null);
+    }
+
+    return () => setHeaderActions(null);
+  }, [error, loading, section, setHeaderActions, teacherProfile?.subjects?.join("|")]);
 
   const handleSubjectFormClassToggle = (classId) => {
     setSubjectForm((currentForm) => ({
@@ -619,8 +647,70 @@ const TeacherView = ({ section = "overview" }) => {
     }));
   };
 
+  const updateSubjectScoreEntryDraft = (
+    studentId,
+    categoryKey,
+    subcategoryKey,
+    value,
+    scoreIndex,
+    part,
+    quarterKey = selectedScoreQuarter
+  ) => {
+    const student = allStudents.find((item) => item.id === studentId);
+    if (!student) return;
+
+    const currentDraft = {
+      ...getSubjectScoreDraft(student),
+      ...subjectScoreDrafts[studentId]
+    };
+    const currentQuarters = {
+      ...getSubjectScoreDraft(student).quarters,
+      ...(subjectScoreDrafts[studentId]?.quarters || {})
+    };
+    const values = normalizeScoreArray(currentQuarters[quarterKey]?.[categoryKey]?.[subcategoryKey]);
+    const neededLength = scoreIndex + 1;
+
+    while (values.length < neededLength) values.push("");
+
+    const currentParts = parseScoreParts(values[scoreIndex]);
+    const nextScoreValue = part === "score" ? value : currentParts.score;
+    const nextTotalValue = part === "total" ? value : currentParts.total;
+    values[scoreIndex] = buildScoreEntryValue(nextScoreValue, nextTotalValue);
+
+    const nextQuarter = {
+      ...createEmptyQuarterScores(),
+      ...(currentQuarters[quarterKey] || {}),
+      [categoryKey]: {
+        ...(createEmptyQuarterScores()[categoryKey] || {}),
+        ...(currentQuarters[quarterKey]?.[categoryKey] || {}),
+        [subcategoryKey]: values
+      }
+    };
+    const nextQuarters = {
+      ...currentQuarters,
+      [quarterKey]: nextQuarter
+    };
+    const nextQuarterGrades = QUARTER_OPTIONS.reduce((grades, quarter) => ({
+      ...grades,
+      [quarter.key]: calculateQuarterGrade(nextQuarters[quarter.key], gradeWeights) ?? ""
+    }), {});
+
+    setSubjectScoreDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [studentId]: {
+        ...currentDraft,
+        ...currentDrafts[studentId],
+        ...nextQuarterGrades,
+        quarters: nextQuarters
+      }
+    }));
+  };
+
   const handleAddAssessmentColumn = () => {
     if (!subjectStudents.length) return;
+    const normalizedTotalPoints = String(assessmentTotalPoints || "").trim();
+
+    if (!normalizedTotalPoints) return;
 
     setSubjectScoreDrafts((currentDrafts) => subjectStudents.reduce((drafts, student) => {
       const currentDraft = currentDrafts[student.id] || getSubjectScoreDraft(student);
@@ -633,7 +723,10 @@ const TeacherView = ({ section = "overview" }) => {
         ...(createEmptyQuarterScores()[assessmentCategory] || {}),
         ...(currentQuarter[assessmentCategory] || {})
       };
-      const nextValues = [...normalizeScoreArray(currentCategory[assessmentSubcategory]), ""];
+      const nextValues = [
+        ...normalizeScoreArray(currentCategory[assessmentSubcategory]),
+        buildScoreEntryValue("", normalizedTotalPoints)
+      ];
 
       return {
         ...drafts,
@@ -652,6 +745,7 @@ const TeacherView = ({ section = "overview" }) => {
         }
       };
     }, currentDrafts));
+    setAssessmentTotalPoints("");
     setShowAssessmentModal(false);
   };
 
@@ -712,7 +806,8 @@ const TeacherView = ({ section = "overview" }) => {
         categoryLabel: category.label,
         subcategoryKey: subcategory.key,
         subcategoryLabel: subcategory.label,
-        index
+        index,
+        shortLabel: `${subcategory.label} ${index + 1}`
       }));
     })
   ));
@@ -798,16 +893,6 @@ const TeacherView = ({ section = "overview" }) => {
     }), {}));
   };
 
-  const handleMarkMonthDay = (day, status) => {
-    setMonthlyAttendanceDrafts((currentDrafts) => students.reduce((drafts, student) => ({
-      ...drafts,
-      [student.id]: {
-        ...(drafts[student.id] || {}),
-        [day]: status
-      }
-    }), currentDrafts));
-  };
-
   const handleSaveDailyAttendance = async () => {
     if (!selectedAttendanceSubjectName) {
       setSaveMessage("Select a subject before saving attendance.");
@@ -819,8 +904,8 @@ const TeacherView = ({ section = "overview" }) => {
       className: selectedClass?.name || selectedClass?.section || "",
       subjectName: selectedAttendanceSubjectName,
       date: attendanceDate,
-      isNoClass: isNoClassDay,
-      noClassReason,
+      isNoClass: effectiveIsNoClassDay,
+      noClassReason: effectiveNoClassReason,
       entries: students.map((student) => ({
         studentId: student.id,
         studentName: student.name,
@@ -828,42 +913,9 @@ const TeacherView = ({ section = "overview" }) => {
       }))
     });
 
-    setSaveMessage(isNoClassDay
+    setSaveMessage(effectiveIsNoClassDay
       ? `${selectedAttendanceSubjectName} marked as no class on ${formatDateLabel(attendanceDate)}.`
       : `${selectedAttendanceSubjectName} attendance saved for ${formatDateLabel(attendanceDate)}.`);
-  };
-
-  const handleSaveMonthlyAttendance = async () => {
-    if (!selectedAttendanceSubjectName) {
-      setSaveMessage("Select a subject before saving attendance.");
-      return;
-    }
-
-    setSavingMonthlyAttendance(true);
-
-    try {
-      for (const day of attendanceMonthDays) {
-        const date = buildMonthDateValue(attendanceMonth, day);
-
-        await saveDailyAttendanceRecord({
-          classId: selectedClass?.id,
-          className: selectedClass?.name || selectedClass?.section || "",
-          subjectName: selectedAttendanceSubjectName,
-          date,
-          entries: students.map((student) => ({
-            studentId: student.id,
-            studentName: student.name,
-            status: monthlyAttendanceDrafts[student.id]?.[day] || ""
-          }))
-        });
-      }
-
-      setSaveMessage(`${selectedAttendanceSubjectName} attendance saved for ${attendanceMonth}.`);
-    } catch (saveError) {
-      setSaveMessage(saveError?.message || "Attendance could not be saved.");
-    } finally {
-      setSavingMonthlyAttendance(false);
-    }
   };
 
   const handleSaveStudent = async (formData) => {
@@ -931,93 +983,49 @@ const TeacherView = ({ section = "overview" }) => {
 
   const renderSubjectManager = () => (
     <>
-      <div className="panel">
-        <div className="panel-header">
-          <h3>Handled Subjects</h3>
-          <button type="button" className="primary-btn" onClick={openSubjectModal}>Add Subject</button>
-        </div>
-        <label className="selector-field subject-search-field">
-          <span>Search Subject</span>
-          <input
-            type="search"
-            value={subjectSearch}
-            onChange={(event) => setSubjectSearch(event.target.value)}
-            placeholder="Search handled subjects"
-          />
-        </label>
-        {handledSubjects.length ? (
-          <div className="subject-picker">
-            {filteredHandledSubjects.map((subject) => (
-              <div
-                key={subject}
-                className={`subject-chip ${subject === selectedSubjectName ? "active" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="subject-chip-main"
-                  onClick={() => {
-                    setSelectedSubjectName(subject);
+      {handledSubjects.length > 0 ? (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>Subject Score Workspace</h3>
+              <p className="muted-text">Choose a subject and section, then update scores in one place.</p>
+            </div>
+          </div>
+
+          <div className="subject-workspace-shell">
+            <div className="subject-filter-row">
+              <label className="selector-field">
+                <span>Subject</span>
+                <select
+                  value={selectedSubjectName}
+                  onChange={(event) => {
+                    setSelectedSubjectName(event.target.value);
+                    setSelectedSubjectClassId("");
                     setSubjectScoreDrafts({});
                   }}
                 >
-                  {subject}
-                </button>
-                <button
-                  type="button"
-                  className="subject-chip-remove"
-                  disabled={savingTeacherId === currentUser?.uid}
-                  onClick={() => requestDeleteSubject(subject)}
-                  aria-label={`Delete ${subject}`}
+                  {handledSubjects.map((subject) => (
+                    <option key={subject} value={subject}>
+                      {subject}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="selector-field">
+                <span>Section</span>
+                <select
+                  value={selectedSubjectClassId}
+                  onChange={(event) => setSelectedSubjectClassId(event.target.value)}
+                  disabled={!selectedSubjectClasses.length}
                 >
-                  x
-                </button>
-              </div>
-            ))}
-            {!filteredHandledSubjects.length && (
-              <p className="empty-copy">No subjects match your search.</p>
-            )}
-          </div>
-        ) : (
-          <p className="empty-copy">Add a subject and choose the sections that will take it.</p>
-        )}
-      </div>
-
-      {handledSubjects.length > 0 && (
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Subject Score Workspace</h3>
-            <span className="meta-badge">{selectedSubjectName || "Select Subject"}</span>
-          </div>
-
-          {selectedSubjectName && (
-            <div className="subject-class-selector">
-              <div className="panel-header">
-                <h4>Sections Enrolled in {selectedSubjectName}</h4>
-                <span className="meta-badge">{selectedSubjectClasses.length} selected</span>
-              </div>
-              <div className="class-checkbox-grid">
-                {selectedSubjectClasses.map((classroom) => (
-                  <div key={classroom.id} className="class-checkbox selected-class-item">
-                    <span>{classroom.name || classroom.section || classroom.id}</span>
-                  </div>
-                ))}
-                {!selectedSubjectClasses.length && (
-                  <p className="empty-copy">No sections selected for this subject.</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {selectedSubjectName && subjectStudents.length > 0 && (
-            <div className="score-column-toolbar">
-              <button
-                type="button"
-                className="primary-btn score-save-all-btn"
-                disabled={savingAllSubjectScores}
-                onClick={handleSaveAllSubjectScores}
-              >
-                {savingAllSubjectScores ? "Saving..." : "Save Scores"}
-              </button>
+                  <option value="">All Sections</option>
+                  {selectedSubjectClasses.map((classroom) => (
+                    <option key={classroom.id} value={classroom.id}>
+                      {classroom.name || classroom.section || classroom.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="selector-field">
                 <span>Quarter</span>
                 <select value={selectedScoreQuarter} onChange={(event) => setSelectedScoreQuarter(event.target.value)}>
@@ -1026,26 +1034,50 @@ const TeacherView = ({ section = "overview" }) => {
                   ))}
                 </select>
               </label>
-              <button type="button" className="secondary-btn" onClick={() => setShowFormulaModal(true)}>
-                Edit Formula
-              </button>
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={() => setShowAssessmentModal(true)}
-                aria-label="Add assessment"
-                title="Add assessment"
-              >
-                + Add Assessment
-              </button>
             </div>
-          )}
+
+            <div className="subject-action-row">
+              {selectedSubjectName && subjectStudents.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="primary-btn score-save-all-btn"
+                    disabled={savingAllSubjectScores}
+                    onClick={handleSaveAllSubjectScores}
+                  >
+                    {savingAllSubjectScores ? "Saving..." : "Save Scores"}
+                  </button>
+                  <button type="button" className="secondary-btn" onClick={() => setShowFormulaModal(true)}>
+                    Edit Formula
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => setShowAssessmentModal(true)}
+                    aria-label="Add assessment"
+                    title="Add assessment"
+                  >
+                    +
+                  </button>
+                </>
+              )}
+              {selectedSubjectName && (
+                <button
+                  type="button"
+                  className="text-btn"
+                  disabled={savingTeacherId === currentUser?.uid}
+                  onClick={() => requestDeleteSubject(selectedSubjectName)}
+                >
+                  Delete Subject
+                </button>
+              )}
+            </div>
+          </div>
 
           {selectedSubjectName && Object.entries(subjectStudentGroups).map(([sectionName, sectionStudents]) => (
             <div key={sectionName} className="subject-section-panel">
               <div className="panel-header">
                 <h4>{sectionName}</h4>
-                <span className="meta-badge">{sectionStudents.length} students</span>
               </div>
               <div className="score-table-wrap">
                 <table className="data-table subject-score-table">
@@ -1054,7 +1086,7 @@ const TeacherView = ({ section = "overview" }) => {
                       <th>Student</th>
                       {getAssessmentColumns(selectedScoreQuarter).map((column) => (
                         <th key={`${column.categoryKey}-${column.subcategoryKey}-${column.index}`}>
-                          {column.categoryLabel}: {column.subcategoryLabel} {column.index + 1}
+                          {column.shortLabel}
                         </th>
                       ))}
                       <th>Final</th>
@@ -1079,25 +1111,31 @@ const TeacherView = ({ section = "overview" }) => {
                           </td>
                           {getAssessmentColumns(selectedScoreQuarter).map((column) => {
                             const values = normalizeScoreArray(draft.quarters?.[selectedScoreQuarter]?.[column.categoryKey]?.[column.subcategoryKey]);
+                            const scoreParts = parseScoreParts(values[column.index]);
+                            const hasTotalPoints = Boolean(String(scoreParts.total || "").trim());
 
                             return (
                               <td
                                 key={`${column.categoryKey}-${column.subcategoryKey}-${column.index}`}
-                                data-label={`${column.categoryLabel}: ${column.subcategoryLabel} ${column.index + 1}`}
+                                data-label={column.shortLabel}
                               >
-                                <input
-                                  type="number"
-                                  value={values[column.index] ?? ""}
-                                  onChange={(event) => updateSubjectScoreDraft(
-                                    student.id,
-                                    column.categoryKey,
-                                    column.subcategoryKey,
-                                    event.target.value,
-                                    column.index,
-                                    selectedScoreQuarter
-                                  )}
-                                  placeholder="-"
-                                />
+                                <div className="score-entry-field">
+                                  <input
+                                    type="number"
+                                    value={scoreParts.score}
+                                    onChange={(event) => updateSubjectScoreEntryDraft(
+                                      student.id,
+                                      column.categoryKey,
+                                      column.subcategoryKey,
+                                      event.target.value,
+                                      column.index,
+                                      "score",
+                                      selectedScoreQuarter
+                                    )}
+                                    placeholder="0"
+                                  />
+                                  {hasTotalPoints && <span className="score-total-label">/ {scoreParts.total}</span>}
+                                </div>
                               </td>
                             );
                           })}
@@ -1114,6 +1152,14 @@ const TeacherView = ({ section = "overview" }) => {
           {selectedSubjectName && !subjectStudents.length && (
             <p className="empty-copy">Choose one or more sections for this subject to show enrolled students.</p>
           )}
+          {selectedSubjectName && selectedSubjectClassId && !visibleSubjectStudents.length && (
+            <p className="empty-copy">No students are enrolled in the selected section for this subject.</p>
+          )}
+        </div>
+      ) : (
+        <div className="panel">
+          <h3>Subject Score Workspace</h3>
+          <p className="empty-copy">Add a subject and choose the sections that will take it.</p>
         </div>
       )}
     </>
@@ -1166,11 +1212,11 @@ const TeacherView = ({ section = "overview" }) => {
   return (
     <div className="teacher-view">
       {error && <div className="error-container">{error}</div>}
-      {saveMessage && <div className="success-banner">{saveMessage}</div>}
+      {saveMessage && <div className="feedback-toast success-banner">{saveMessage}</div>}
 
-      {renderClassSelector()}
+      {section !== "subjects" && section !== "attendance" && renderClassSelector()}
 
-      {isClassScopedSection && !sectionClassReports.length && (
+      {section !== "attendance" && isClassScopedSection && !sectionClassReports.length && (
         <div className="empty-state">
           <h3>{section === "attendance" ? "No Subject Sections" : "No Advisory"}</h3>
           <p>{section === "attendance" ? "Add a subject and assign a section before taking attendance." : "Wait for an admin to assign your advisory section."}</p>
@@ -1209,15 +1255,6 @@ const TeacherView = ({ section = "overview" }) => {
             <div className="panel">
               <div className="panel-header">
                 <h3>{selectedClass?.name || selectedClass?.section || "Selected Section"}</h3>
-                <div className="inline-actions">
-                  {selectedClass?.classCode && (
-                    <span className="meta-badge">Code {selectedClass.classCode}</span>
-                  )}
-                  {(selectedClass?.subject || selectedClass?.gradeLevel) && (
-                    <span className="meta-badge">{selectedClass?.subject || selectedClass?.gradeLevel}</span>
-                  )}
-                  <span className="meta-badge">{classTeacherName}</span>
-                </div>
               </div>
               <div className="report-strip">
                 <div>
@@ -1316,11 +1353,11 @@ const TeacherView = ({ section = "overview" }) => {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Q1 Avg</th>
-                <th>Q2 Avg</th>
+                <th>Quarter 1</th>
+                <th>Quarter 2</th>
+                <th>Quarter 3</th>
+                <th>Quarter 4</th>
                 <th>Attendance</th>
-                <th>Performance</th>
-                <th>Remarks</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -1328,11 +1365,11 @@ const TeacherView = ({ section = "overview" }) => {
               {students.map((student) => (
                 <tr key={student.id}>
                   <td data-label="Name">{student.name}</td>
-                  <td data-label="Q1 Avg">{student.q1Average ?? "N/A"}</td>
-                  <td data-label="Q2 Avg">{student.q2Average ?? "N/A"}</td>
+                  <td data-label="Quarter 1">{student.q1Average ?? "N/A"}</td>
+                  <td data-label="Quarter 2">{student.q2Average ?? "N/A"}</td>
+                  <td data-label="Quarter 3">{student.q3Average ?? "N/A"}</td>
+                  <td data-label="Quarter 4">{student.q4Average ?? "N/A"}</td>
                   <td data-label="Attendance">{student.attendanceLabel}</td>
-                  <td data-label="Performance"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
-                  <td data-label="Remarks">{student.teacherRemarks || "None"}</td>
                   <td data-label="Action">
                     <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
                       {savingStudentId === student.id ? "Saving..." : "Edit"}
@@ -1356,14 +1393,15 @@ const TeacherView = ({ section = "overview" }) => {
             <div className="panel attendance-sheet">
               <div className="panel-header">
                 <div>
-                  <h3>Monthly Attendance Sheet</h3>
+                  <h3>{formatDateLabel(attendanceDate)}</h3>
                   <p className="muted-text">
-                    {selectedClass?.name || selectedClass?.section || "Selected Section"} - {selectedAttendanceSubjectName || "Select Subject"}
+                    Daily Attendance Sheet {selectedAttendanceSubjectName ? `- ${selectedAttendanceSubjectName}` : ""}{selectedClass ? ` - ${selectedClass?.name || selectedClass?.section || "Selected Section"}` : ""}
                   </p>
                 </div>
                 <span className="meta-badge">{students.length} students</span>
               </div>
 
+              <div className="attendance-workspace-shell">
               <div className="attendance-sheet-toolbar">
                 <label className="selector-field">
                   <span>Subject</span>
@@ -1379,87 +1417,136 @@ const TeacherView = ({ section = "overview" }) => {
                   </select>
                 </label>
                 <label className="selector-field">
-                  <span>Month/Year</span>
+                  <span>Section</span>
+                  <select
+                    value={selectedClass?.id || ""}
+                    onChange={(event) => setSelectedClassId(event.target.value)}
+                    disabled={!attendanceVisibleClassReports.length}
+                  >
+                    {attendanceVisibleClassReports.map((classroom) => (
+                      <option key={classroom.id} value={classroom.id}>
+                        {classroom.name || classroom.section || classroom.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="selector-field">
+                  <span>Date</span>
                   <input
-                    type="month"
-                    value={attendanceMonth}
-                    onChange={(event) => setAttendanceMonth(event.target.value)}
+                    type="date"
+                    value={attendanceDate}
+                    onChange={(event) => setAttendanceDate(event.target.value)}
                   />
                 </label>
-                <div className="attendance-mark-all">
-                  <button type="button" className="secondary-btn" onClick={() => handleMarkMonthDay(new Date().getDate(), "present")}>
-                    Today Present
-                  </button>
-                  <button type="button" className="secondary-btn" onClick={() => handleMarkMonthDay(new Date().getDate(), "absent")}>
-                    Today Absent
-                  </button>
+              </div>
+
+              <div className="attendance-day-panel">
+                <div className="attendance-day-status">
+                  <span className={`status-pill ${effectiveIsNoClassDay ? "no-class" : "info"}`}>
+                    {effectiveIsNoClassDay ? "No Class" : "Class Day"}
+                  </span>
                 </div>
+
+                <div className="attendance-sheet-toolbar">
+                  <label className="attendance-toggle">
+                    <input
+                      type="checkbox"
+                      checked={effectiveIsNoClassDay}
+                      onChange={(event) => setIsNoClassDay(event.target.checked)}
+                    />
+                    <span>Mark as No Class</span>
+                  </label>
+                  {effectiveIsNoClassDay && (
+                    <label className="selector-field">
+                      <span>Reason</span>
+                      <input
+                        type="text"
+                        value={effectiveNoClassReason}
+                        onChange={(event) => setNoClassReason(event.target.value)}
+                        placeholder="Holiday, suspended classes, event"
+                      />
+                    </label>
+                  )}
+                </div>
+                {isWeekendAttendanceDate && (
+                  <p className="muted-text">Saturday and Sunday default to no class, but you can still mark them as class days when needed.</p>
+                )}
+
               </div>
 
-              <div className="score-table-wrap">
-                <table className="data-table subject-score-table monthly-attendance-table">
-                  <thead>
-                    <tr>
-                      <th>No.</th>
-                      <th>Student Name</th>
-                      {attendanceMonthDays.map((day) => (
-                        <th key={day}>{day}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {students.map((student, index) => (
-                      <tr key={student.id}>
-                        <td data-label="No.">{index + 1}</td>
-                        <td data-label="Student Name" className="monthly-student-name">{student.name}</td>
-                        {attendanceMonthDays.map((day) => (
-                          <td key={day} data-label={`${day}`}>
-                            <select
-                              className="attendance-cell-select"
-                              value={monthlyAttendanceDrafts[student.id]?.[day] || ""}
-                              onChange={(event) => handleMonthlyAttendanceChange(student.id, day, event.target.value)}
-                            >
-                              <option value=""></option>
-                              {ATTENDANCE_STATUS_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.code}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                        ))}
-                      </tr>
+              {attendanceVisibleClassReports.length ? (
+                <>
+                  {!effectiveIsNoClassDay && (
+                    <div className="score-table-wrap">
+                      <table className="data-table daily-attendance-table">
+                        <thead>
+                          <tr>
+                            <th>No.</th>
+                            <th>Student Name</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {students.map((student, index) => (
+                            <tr key={student.id}>
+                              <td data-label="No.">{index + 1}</td>
+                              <td data-label="Student Name" className="monthly-student-name">
+                                <strong>{student.name}</strong>
+                              </td>
+                              <td data-label="Status">
+                                <select
+                                  className="attendance-status-select"
+                                  value={dailyAttendanceDrafts[student.id] || "present"}
+                                  onChange={(event) => handleDailyAttendanceChange(student.id, event.target.value)}
+                                >
+                                  {ATTENDANCE_STATUS_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                          {students.length === 0 && (
+                            <tr>
+                              <td colSpan="3">No students found for this section.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {effectiveIsNoClassDay && (
+                    <p className="empty-copy">This date is marked as no class. Save the selected day to apply it to this subject section.</p>
+                  )}
+
+                  <div className="attendance-sheet-summary attendance-legend-list">
+                    {ATTENDANCE_STATUS_OPTIONS.map((option) => (
+                      <span key={option.value} className="attendance-legend-item"><strong>{option.code}</strong> {option.label}</span>
                     ))}
-                    {students.length === 0 && (
-                      <tr>
-                        <td colSpan={attendanceMonthDays.length + 2}>No students found for this section.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  </div>
 
-              <div className="attendance-sheet-summary monthly-attendance-legend">
-                {ATTENDANCE_STATUS_OPTIONS.map((option) => (
-                  <span key={option.value}><strong>{option.code}</strong> = {option.label}</span>
-                ))}
+                  <button
+                    type="button"
+                    className="primary-btn attendance-save-btn"
+                    onClick={handleSaveDailyAttendance}
+                  >
+                    Save Selected Day
+                  </button>
+                </>
+              ) : (
+                <p className="empty-copy">Assign at least one section to this subject to start checking attendance.</p>
+              )}
               </div>
-
-              <button
-                type="button"
-                className="primary-btn attendance-save-btn"
-                disabled={savingMonthlyAttendance}
-                onClick={handleSaveMonthlyAttendance}
-              >
-                {savingMonthlyAttendance ? "Saving..." : "Save Monthly Attendance"}
-              </button>
             </div>
           ) : (
             <div className="panel">
               <div className="panel-header">
-                <h3>Monthly Attendance Sheet</h3>
+                <h3>Daily Attendance Sheet</h3>
               </div>
-              <p className="empty-copy">Add a subject first, then assign this section to that subject.</p>
+              <p className="empty-copy">Add a subject first, then assign one or more sections to it.</p>
             </div>
           )}
 
@@ -1614,12 +1701,34 @@ const TeacherView = ({ section = "overview" }) => {
                   ))}
                 </select>
               </div>
+              <div className="form-group">
+                <label>Total Points</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={assessmentTotalPoints}
+                  onChange={(event) => setAssessmentTotalPoints(event.target.value)}
+                  placeholder="Example: 20"
+                />
+              </div>
             </div>
             <div className="modal-actions">
-              <button type="button" className="primary-btn" onClick={handleAddAssessmentColumn}>
+              <button
+                type="button"
+                className="primary-btn"
+                disabled={!String(assessmentTotalPoints || "").trim()}
+                onClick={handleAddAssessmentColumn}
+              >
                 Add
               </button>
-              <button type="button" className="secondary-btn" onClick={() => setShowAssessmentModal(false)}>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => {
+                  setAssessmentTotalPoints("");
+                  setShowAssessmentModal(false);
+                }}
+              >
                 Cancel
               </button>
             </div>
@@ -1632,8 +1741,13 @@ const TeacherView = ({ section = "overview" }) => {
           <div className="modal-content">
             <div className="panel-header">
               <h3>Edit Formula</h3>
-              <span className="meta-badge">{selectedSubjectName || "Subject"}</span>
+              <span className={`meta-badge${isGradeWeightTotalValid ? "" : " formula-warning-badge"}`}>
+                Total {gradeWeightTotal}%
+              </span>
             </div>
+            <p className="muted-text">
+              The grading formula must always total 100%.
+            </p>
             <div className="modal-form-grid">
               {ASSESSMENT_CATEGORIES.map((category) => (
                 <div key={category.key} className="form-group">
@@ -1652,7 +1766,12 @@ const TeacherView = ({ section = "overview" }) => {
               ))}
             </div>
             <div className="modal-actions">
-              <button type="button" className="primary-btn" onClick={() => setShowFormulaModal(false)}>
+              <button
+                type="button"
+                className="primary-btn"
+                disabled={!isGradeWeightTotalValid}
+                onClick={() => setShowFormulaModal(false)}
+              >
                 Done
               </button>
               <button
@@ -1671,6 +1790,7 @@ const TeacherView = ({ section = "overview" }) => {
         <StudentRecordModal
           title={`Edit Student: ${managingStudent.name}`}
           student={managingStudent}
+          gradeLevelOptions={gradeLevels}
           defaultClassId={selectedClass?.id || ""}
           defaultTeacherId={selectedClass?.teacherId || selectedClass?.teacherUid || ""}
           defaultTeacherName={classTeacherName}

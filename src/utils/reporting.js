@@ -25,6 +25,7 @@ const slugify = (value) => {
 };
 
 const normalizeNamePart = (value) => String(value || "").trim();
+const SCORE_ENTRY_KEYS = ["score", "earned", "value", "points", "total", "maxScore", "max", "over"];
 
 const formatMiddleInitial = (middleValue) => {
   const trimmedValue = normalizeNamePart(middleValue);
@@ -57,13 +58,96 @@ export const formatPersonName = ({
   return normalizeNamePart(name) || normalizeNamePart(displayName) || fallback;
 };
 
-const normalizeScoreList = (value) => {
-  const normalizeScoreEntry = (score) => {
-    if (typeof score === "string" && !score.trim()) return "";
+const isScoreEntryObject = (value) => (
+  Boolean(value)
+  && typeof value === "object"
+  && !Array.isArray(value)
+  && SCORE_ENTRY_KEYS.some((key) => Object.prototype.hasOwnProperty.call(value, key))
+);
 
-    const parsedScore = toNumber(score);
-    return Number.isFinite(parsedScore) ? parsedScore : "";
-  };
+export const parseScoreEntry = (value) => {
+  if (value === null || value === undefined) return null;
+
+  if (isScoreEntryObject(value)) {
+    const earned = toNumber(value.score ?? value.earned ?? value.value ?? value.points);
+    const total = toNumber(value.total ?? value.maxScore ?? value.max ?? value.over);
+
+    if (Number.isFinite(earned) && Number.isFinite(total) && total > 0) {
+      return {
+        numericValue: Number(((earned / total) * 100).toFixed(2)),
+        displayValue: `${earned}/${total}`,
+        scoreValue: String(earned),
+        totalValue: String(total)
+      };
+    }
+
+    if (Number.isFinite(earned)) {
+      return {
+        numericValue: earned,
+        displayValue: String(earned),
+        scoreValue: String(earned),
+        totalValue: Number.isFinite(total) ? String(total) : ""
+      };
+    }
+
+    return null;
+  }
+
+  const trimmedValue = String(value).trim();
+  if (!trimmedValue) return null;
+
+  if (trimmedValue.includes("/")) {
+    const [scorePart = "", totalPart = ""] = trimmedValue.split("/", 2).map((part) => part.trim());
+    const earned = toNumber(scorePart);
+    const total = toNumber(totalPart);
+
+    if (Number.isFinite(earned) && Number.isFinite(total) && total > 0) {
+      return {
+        numericValue: Number(((earned / total) * 100).toFixed(2)),
+        displayValue: `${earned}/${total}`,
+        scoreValue: scorePart,
+        totalValue: totalPart
+      };
+    }
+
+    return {
+      numericValue: null,
+      displayValue: trimmedValue,
+      scoreValue: scorePart,
+      totalValue: totalPart
+    };
+  }
+
+  const parsedScore = toNumber(trimmedValue);
+  if (Number.isFinite(parsedScore)) {
+    return {
+      numericValue: parsedScore,
+      displayValue: trimmedValue,
+      scoreValue: trimmedValue,
+      totalValue: ""
+    };
+  }
+
+  return null;
+};
+
+export const normalizeStoredScoreEntry = (value) => parseScoreEntry(value)?.displayValue || "";
+
+export const formatScoreList = (scores) => {
+  if (!Array.isArray(scores) || !scores.length) return "N/A";
+
+  const visibleScores = scores
+    .map((score) => parseScoreEntry(score))
+    .filter((entry) => entry?.scoreValue);
+
+  if (!visibleScores.length) return "N/A";
+
+  return visibleScores
+    .map((entry, index) => `${index + 1}: ${entry.displayValue}`)
+    .join(", ");
+};
+
+const normalizeScoreList = (value) => {
   const trimTrailingBlanks = (scores) => {
     const nextScores = [...scores];
 
@@ -75,19 +159,23 @@ const normalizeScoreList = (value) => {
   };
 
   if (Array.isArray(value)) {
-    return trimTrailingBlanks(value.map(normalizeScoreEntry));
+    return trimTrailingBlanks(value.map(normalizeStoredScoreEntry));
   }
 
   if (value && typeof value === "object") {
-    return trimTrailingBlanks(Object.values(value).map(normalizeScoreEntry));
+    if (isScoreEntryObject(value)) {
+      return trimTrailingBlanks([normalizeStoredScoreEntry(value)]);
+    }
+
+    return trimTrailingBlanks(Object.values(value).map(normalizeStoredScoreEntry));
   }
 
   if (typeof value === "string" && value.includes(",")) {
-    return trimTrailingBlanks(value.split(",").map(normalizeScoreEntry));
+    return trimTrailingBlanks(value.split(",").map(normalizeStoredScoreEntry));
   }
 
-  const score = toNumber(value);
-  return Number.isFinite(score) ? [score] : [];
+  const score = normalizeStoredScoreEntry(value);
+  return score ? [score] : [];
 };
 
 const normalizeQuarterScores = (subject) => {

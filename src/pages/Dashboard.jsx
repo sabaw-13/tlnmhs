@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useSchoolData } from "../context/SchoolDataContext";
+import { useTheme } from "../context/ThemeContext";
 import {
   BarChart3,
-  BellRing,
   BookOpen,
   CalendarCheck,
   ClipboardCheck,
@@ -13,8 +12,9 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Moon,
   School,
-  Settings,
+  Sun,
   UserCog,
   Users,
   X
@@ -27,8 +27,151 @@ import SettingsView from "./SettingsView";
 import ConfirmDialog from "../components/ConfirmDialog";
 import "./Dashboard.css";
 
+const getInitials = (name) => {
+  if (!name) return "?";
+  const parts = name.split(/[\s@.]/).filter(Boolean);
+  return parts.slice(0, 2).map((p) => p[0]).join("").toUpperCase();
+};
+
+const HEADER_COPY = {
+  admin: {
+    dashboard: {
+      eyebrow: "Dashboard",
+      title: "School Operations",
+      description: "Monitor enrollment, advisory assignments, parent access, and academic records."
+    },
+    requests: {
+      eyebrow: "Requests",
+      title: "Request Center",
+      description: "Review parent account and student access requests."
+    },
+    students: {
+      eyebrow: "Students",
+      title: "Student Manager",
+      description: "Add, import, assign, and maintain Junior High student records."
+    },
+    classes: {
+      eyebrow: "Sections",
+      title: "Grade & Section Manager",
+      description: "Maintain grade levels and assign section names under the right grade."
+    },
+    teachers: {
+      eyebrow: "Teachers",
+      title: "Teacher Manager",
+      description: "Create teacher accounts, assign subjects, and manage advisory sections."
+    },
+    parents: {
+      eyebrow: "Parents",
+      title: "Parent Manager",
+      description: "Manage parent accounts and student record access."
+    },
+    reports: {
+      eyebrow: "Reports",
+      title: "Performance Reports",
+      description: "Review section performance, attendance, and students needing intervention."
+    },
+    settings: {
+      eyebrow: "Settings",
+      title: "Account Settings",
+      description: "Review account details and system preferences."
+    }
+  },
+  teacher: {
+    dashboard: {
+      eyebrow: "Dashboard",
+      title: "Teaching Dashboard",
+      description: "Track advisory students, subjects, attendance, and academic progress."
+    },
+    students: {
+      eyebrow: "Students",
+      title: "Student Manager",
+      description: "Manage the roster for your assigned advisory section."
+    },
+    subjects: {
+      eyebrow: "Subjects",
+      title: "Subject Manager",
+      description: "Set up handled subjects and assign them to sections."
+    },
+    attendance: {
+      eyebrow: "Attendance",
+      title: "Attendance Tracker",
+      description: "Record daily and monthly attendance for your subject sections."
+    },
+    gradebook: {
+      eyebrow: "Gradebook",
+      title: "Gradebook",
+      description: "Update quarterly scores and final subject grades."
+    },
+    reports: {
+      eyebrow: "Reports",
+      title: "Class Reports",
+      description: "Review academic performance and students needing support."
+    },
+    settings: {
+      eyebrow: "Settings",
+      title: "Account Settings",
+      description: "Review account details and system preferences."
+    }
+  },
+  student: {
+    dashboard: {
+      eyebrow: "Dashboard",
+      title: "Student Dashboard",
+      description: "View your section, academic summary, attendance, and recent updates."
+    },
+    "join-class": {
+      eyebrow: "Join Section",
+      title: "Join Section",
+      description: "Enter your section code and wait for adviser approval."
+    },
+    grades: {
+      eyebrow: "Grades",
+      title: "My Grades",
+      description: "Review subject grades and quarterly progress."
+    },
+    attendance: {
+      eyebrow: "Attendance",
+      title: "My Attendance",
+      description: "Check your current attendance record."
+    },
+    settings: {
+      eyebrow: "Settings",
+      title: "Account Settings",
+      description: "Review account details and system preferences."
+    }
+  },
+  parent: {
+    dashboard: {
+      eyebrow: "Dashboard",
+      title: "Parent Dashboard",
+      description: "Review linked student progress, attendance, and updates."
+    },
+    requests: {
+      eyebrow: "Requests",
+      title: "Student Access Requests",
+      description: "Request or manage access to student records."
+    },
+    "child-report": {
+      eyebrow: "Child Report",
+      title: "Child Report",
+      description: "View grades, attendance, and academic notes for your child."
+    },
+    attendance: {
+      eyebrow: "Attendance",
+      title: "Attendance",
+      description: "Monitor attendance records for linked students."
+    },
+    settings: {
+      eyebrow: "Settings",
+      title: "Account Settings",
+      description: "Review account details and system preferences."
+    }
+  }
+};
+
 const Dashboard = () => {
   const { userData, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const role = userData?.role;
@@ -36,6 +179,7 @@ const Dashboard = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
+  const [headerActions, setHeaderActions] = useState(null);
 
   useEffect(() => {
     setIsSidebarOpen(false);
@@ -77,19 +221,19 @@ const Dashboard = () => {
 
   const getSidebarItems = () => {
     const common = [
-      { path: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={20} /> }
+      { path: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={19} /> }
     ];
-    const settingsItem = { path: "/dashboard/settings", label: "Settings", icon: <Settings size={20} /> };
+    const settingsItem = { path: "/dashboard/settings", label: "Settings", icon: <School size={19} /> };
 
     if (role === "admin") {
       return [
         ...common,
-        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
-        { path: "/dashboard/students", label: "Students", icon: <Users size={20} /> },
-        { path: "/dashboard/classes", label: "Sections", icon: <School size={20} /> },
-        { path: "/dashboard/teachers", label: "Teachers", icon: <UserCog size={20} /> },
-        { path: "/dashboard/parents", label: "Parents", icon: <Users size={20} /> },
-        { path: "/dashboard/reports", label: "Reports", icon: <BarChart3 size={20} /> },
+        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={19} /> },
+        { path: "/dashboard/students", label: "Students", icon: <Users size={19} /> },
+        { path: "/dashboard/classes", label: "Sections", icon: <School size={19} /> },
+        { path: "/dashboard/teachers", label: "Teachers", icon: <UserCog size={19} /> },
+        { path: "/dashboard/parents", label: "Parents", icon: <Users size={19} /> },
+        { path: "/dashboard/reports", label: "Reports", icon: <BarChart3 size={19} /> },
         settingsItem
       ];
     }
@@ -97,11 +241,10 @@ const Dashboard = () => {
     if (role === "teacher") {
       return [
         ...common,
-        { path: "/dashboard/students", label: "Students", icon: <Users size={20} /> },
-        { path: "/dashboard/subjects", label: "Subjects", icon: <BookOpen size={20} /> },
-        { path: "/dashboard/attendance", label: "Attendance", icon: <CalendarCheck size={20} /> },
-        { path: "/dashboard/gradebook", label: "Gradebook", icon: <ClipboardCheck size={20} /> },
-        { path: "/dashboard/reports", label: "Reports", icon: <ClipboardCheck size={20} /> },
+        { path: "/dashboard/students", label: "Students", icon: <Users size={19} /> },
+        { path: "/dashboard/subjects", label: "Subjects", icon: <BookOpen size={19} /> },
+        { path: "/dashboard/attendance", label: "Attendance", icon: <CalendarCheck size={19} /> },
+        { path: "/dashboard/gradebook", label: "Gradebook", icon: <ClipboardCheck size={19} /> },
         settingsItem
       ];
     }
@@ -109,9 +252,8 @@ const Dashboard = () => {
     if (role === "student") {
       return [
         ...common,
-        { path: "/dashboard/join-class", label: "Join Section", icon: <Inbox size={20} /> },
-        { path: "/dashboard/grades", label: "My Grades", icon: <GraduationCap size={20} /> },
-        { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={20} /> },
+        { path: "/dashboard/grades", label: "My Grades", icon: <GraduationCap size={19} /> },
+        { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={19} /> },
         settingsItem
       ];
     }
@@ -119,10 +261,9 @@ const Dashboard = () => {
     if (role === "parent") {
       return [
         ...common,
-        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={20} /> },
-        { path: "/dashboard/child-report", label: "Child Report", icon: <BookOpen size={20} /> },
-        { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={20} /> },
-        { path: "/dashboard/updates", label: "Updates", icon: <BellRing size={20} /> },
+        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={19} /> },
+        { path: "/dashboard/child-report", label: "Child Report", icon: <BookOpen size={19} /> },
+        { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={19} /> },
         settingsItem
       ];
     }
@@ -135,32 +276,32 @@ const Dashboard = () => {
       case "admin":
         return (
           <>
-            <Route index element={<AdminView section="dashboard" />} />
-            <Route path="requests" element={<AdminView section="requests" />} />
-            <Route path="students" element={<AdminView section="students" />} />
-            <Route path="classes" element={<AdminView section="classes" />} />
-            <Route path="teachers" element={<AdminView section="teachers" />} />
-            <Route path="parents" element={<AdminView section="parents" />} />
+            <Route index element={<AdminView section="dashboard" setHeaderActions={setHeaderActions} />} />
+            <Route path="requests" element={<AdminView section="requests" setHeaderActions={setHeaderActions} />} />
+            <Route path="students" element={<AdminView section="students" setHeaderActions={setHeaderActions} />} />
+            <Route path="classes" element={<AdminView section="classes" setHeaderActions={setHeaderActions} />} />
+            <Route path="teachers" element={<AdminView section="teachers" setHeaderActions={setHeaderActions} />} />
+            <Route path="parents" element={<AdminView section="parents" setHeaderActions={setHeaderActions} />} />
             <Route path="repository" element={<Navigate to="/dashboard/students" replace />} />
-            <Route path="reports" element={<AdminView section="reports" />} />
+            <Route path="reports" element={<AdminView section="reports" setHeaderActions={setHeaderActions} />} />
           </>
         );
       case "teacher":
         return (
           <>
-            <Route index element={<TeacherView section="dashboard" />} />
-            <Route path="students" element={<TeacherView section="students" />} />
-            <Route path="subjects" element={<TeacherView section="subjects" />} />
-            <Route path="attendance" element={<TeacherView section="attendance" />} />
-            <Route path="gradebook" element={<TeacherView section="gradebook" />} />
-            <Route path="reports" element={<TeacherView section="reports" />} />
+            <Route index element={<TeacherView section="dashboard" setHeaderActions={setHeaderActions} />} />
+            <Route path="students" element={<TeacherView section="students" setHeaderActions={setHeaderActions} />} />
+            <Route path="subjects" element={<TeacherView section="subjects" setHeaderActions={setHeaderActions} />} />
+            <Route path="attendance" element={<TeacherView section="attendance" setHeaderActions={setHeaderActions} />} />
+            <Route path="gradebook" element={<TeacherView section="gradebook" setHeaderActions={setHeaderActions} />} />
+            <Route path="reports" element={<Navigate to="/dashboard" replace />} />
           </>
         );
       case "student":
         return (
           <>
             <Route index element={<StudentView section="dashboard" />} />
-            <Route path="join-class" element={<StudentView section="join" />} />
+            <Route path="join-class" element={<Navigate to="/dashboard" replace />} />
             <Route path="grades" element={<StudentView section="grades" />} />
             <Route path="attendance" element={<StudentView section="attendance" />} />
           </>
@@ -172,7 +313,7 @@ const Dashboard = () => {
             <Route path="requests" element={<ParentView section="requests" />} />
             <Route path="child-report" element={<ParentView section="report" />} />
             <Route path="attendance" element={<ParentView section="attendance" />} />
-            <Route path="updates" element={<ParentView section="updates" />} />
+            <Route path="updates" element={<Navigate to="/dashboard" replace />} />
           </>
         );
       default:
@@ -188,6 +329,15 @@ const Dashboard = () => {
           />
         );
     }
+  };
+
+  const displayName = userData?.displayName || userData?.email;
+  const pathParts = location.pathname.split("/").filter(Boolean);
+  const activeSection = pathParts[1] || "dashboard";
+  const headerCopy = HEADER_COPY[role]?.[activeSection] || {
+    eyebrow: roleLabel,
+    title: "Dashboard",
+    description: "Use the navigation to access your available tools."
   };
 
   return (
@@ -211,9 +361,10 @@ const Dashboard = () => {
             aria-label="Close navigation menu"
             onClick={() => setIsSidebarOpen(false)}
           >
-            <X size={20} />
+            <X size={19} />
           </button>
         </div>
+
         <nav className="sidebar-nav">
           {getSidebarItems().map((item) => (
             <NavLink
@@ -227,28 +378,53 @@ const Dashboard = () => {
             </NavLink>
           ))}
         </nav>
+
+        <div className="sidebar-user">
+          <div className="sidebar-user-avatar">{getInitials(displayName)}</div>
+          <div className="sidebar-user-info">
+            <strong title={displayName}>
+              {userData?.displayName || userData?.email?.split("@")[0]}
+            </strong>
+            <span>{role || "user"}</span>
+          </div>
+        </div>
+
         <button className="logout-btn" type="button" onClick={() => setIsLogoutDialogOpen(true)}>
-          <LogOut size={20} />
-          <span>Logout</span>
+          <LogOut size={18} />
+          <span>Sign Out</span>
         </button>
       </aside>
 
       <main className="content">
         <header className="content-header">
-          <div className="header-leading">
-            <button
-              className="mobile-nav-btn"
-              type="button"
-              aria-label="Open navigation menu"
-              aria-controls="dashboard-sidebar"
-              aria-expanded={isSidebarOpen}
-              onClick={() => setIsSidebarOpen(true)}
-            >
-              <Menu size={20} />
-            </button>
-            <div className="header-copy">
-              <span className="header-kicker">{roleLabel}</span>
-              <h1>{userData?.displayName || userData?.email}</h1>
+          <div className="header-topbar">
+            <div className="header-leading">
+              <button
+                className="mobile-nav-btn"
+                type="button"
+                aria-label="Open navigation menu"
+                aria-controls="dashboard-sidebar"
+                aria-expanded={isSidebarOpen}
+                onClick={() => setIsSidebarOpen(true)}
+              >
+                <Menu size={19} />
+              </button>
+              <div className="header-copy">
+                <span className="header-kicker">{headerCopy.eyebrow}</span>
+                <h1>{headerCopy.title}</h1>
+                <p>{headerCopy.description}</p>
+              </div>
+            </div>
+            <div className="header-actions">
+              {headerActions}
+              <button
+                className="icon-btn"
+                type="button"
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                onClick={toggleTheme}
+              >
+                {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+              </button>
             </div>
           </div>
         </header>
@@ -265,9 +441,9 @@ const Dashboard = () => {
       {isLogoutDialogOpen && (
         <ConfirmDialog
           tone="danger"
-          title="Log out from this session?"
+          title="Sign out from this session?"
           message="You will be signed out on this device and returned to the login screen."
-          confirmLabel="Log Out"
+          confirmLabel="Sign Out"
           cancelLabel="Stay Here"
           busy={isLoggingOut}
           onConfirm={handleLogout}

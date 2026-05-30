@@ -4,30 +4,39 @@ import { useSchoolData } from "../context/SchoolDataContext";
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
-const formatScoreList = (scores) => {
-  if (!Array.isArray(scores) || !scores.length) return "N/A";
-
-  return scores
-    .map((score, index) => `${index + 1}: ${score === "" || score === null || score === undefined ? "-" : score}`)
-    .join(", ");
-};
 const QUARTER_OPTIONS = [
   { key: "q1", label: "Q1" },
   { key: "q2", label: "Q2" },
   { key: "q3", label: "Q3" },
   { key: "q4", label: "Q4" }
 ];
-const formatQuarterScores = (subject, quarterKey) => {
-  const quarterScores = subject.quarters?.[quarterKey] || {};
-
-  return [
-    `Quiz ${formatScoreList(quarterScores.writtenWork?.quizzes ?? quarterScores.quizzes)}`,
-    `Long Test ${formatScoreList(quarterScores.writtenWork?.longTests)}`,
-    `Project ${formatScoreList(quarterScores.performanceTask?.projects)}`,
-    `Activity ${formatScoreList(quarterScores.performanceTask?.activities ?? quarterScores.activities)}`,
-    `Final Exam ${formatScoreList(quarterScores.finalExam?.exams ?? quarterScores.exams)}`
-  ].join(" | ");
+const ATTENDANCE_PAGE_SIZE = 10;
+const formatAttendanceStatus = (status) => {
+  switch (String(status || "").toLowerCase()) {
+    case "present":
+      return "Present";
+    case "absent":
+      return "Absent";
+    case "late":
+      return "Tardy";
+    case "excused":
+      return "Excused";
+    case "unexcused":
+      return "Unexcused";
+    case "no-class":
+      return "No Class";
+    default:
+      return "Not Marked";
+  }
 };
+const getSubjectSnapshotGrade = (subject) => (
+  subject.finalGrade
+  ?? subject.q4
+  ?? subject.q3
+  ?? subject.q2
+  ?? subject.q1
+  ?? "N/A"
+);
 
 const ParentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -37,7 +46,8 @@ const ParentView = ({ section = "overview" }) => {
     error,
     parentStudentAccessRequests,
     requestParentStudentAccess,
-    cancelParentStudentAccessRequest
+    cancelParentStudentAccessRequest,
+    getClassAttendanceRecords
   } = useSchoolData();
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [accessForm, setAccessForm] = useState({
@@ -47,6 +57,8 @@ const ParentView = ({ section = "overview" }) => {
   const [accessFeedback, setAccessFeedback] = useState(null);
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [cancellingRequestId, setCancellingRequestId] = useState("");
+  const [attendanceSubjectFilter, setAttendanceSubjectFilter] = useState("");
+  const [attendancePage, setAttendancePage] = useState(1);
   const isDashboardSection = section === "dashboard" || section === "overview";
 
   useEffect(() => {
@@ -62,9 +74,51 @@ const ParentView = ({ section = "overview" }) => {
   }, [linkedStudents, selectedStudentId]);
 
   const linkedStudent = linkedStudents.find((student) => student.id === selectedStudentId) || linkedStudents[0] || null;
+  const subjectGradeSnapshot = linkedStudent?.subjects?.map((subject) => ({
+    id: subject.id,
+    name: subject.name,
+    grade: getSubjectSnapshotGrade(subject)
+  })) || [];
+  const attendanceReportRows = linkedStudent?.classId
+    ? linkedStudent.subjects
+      .flatMap((subject) => (
+        getClassAttendanceRecords(linkedStudent.classId, subject.name).map((record) => ({
+          id: `${subject.id}-${record.date}`,
+          date: record.date,
+          subject: subject.name,
+          status: record.status === "no-class"
+            ? "No Class"
+            : formatAttendanceStatus(record.records?.[linkedStudent.id]?.status),
+          notes: record.status === "no-class"
+            ? (record.noClassReason || "No class")
+            : (record.records?.[linkedStudent.id]?.remarks || "")
+        }))
+      ))
+      .filter((row) => row.status && row.status !== "Not Marked")
+      .sort((left, right) => String(right.date).localeCompare(String(left.date)))
+    : [];
+  const attendanceSubjectOptions = [...new Set(attendanceReportRows.map((row) => row.subject))];
+  const filteredAttendanceRows = attendanceSubjectFilter
+    ? attendanceReportRows.filter((row) => row.subject === attendanceSubjectFilter)
+    : attendanceReportRows;
+  const attendanceTotalPages = Math.max(1, Math.ceil(filteredAttendanceRows.length / ATTENDANCE_PAGE_SIZE));
+  const currentAttendancePage = Math.min(attendancePage, attendanceTotalPages);
+  const paginatedAttendanceRows = filteredAttendanceRows.slice(
+    (currentAttendancePage - 1) * ATTENDANCE_PAGE_SIZE,
+    currentAttendancePage * ATTENDANCE_PAGE_SIZE
+  );
   const pendingAccessRequests = parentStudentAccessRequests.filter((request) => (
     request.parentId === currentUser?.uid && request.status === "pending"
   ));
+
+  useEffect(() => {
+    setAttendanceSubjectFilter("");
+    setAttendancePage(1);
+  }, [linkedStudent?.id]);
+
+  useEffect(() => {
+    setAttendancePage(1);
+  }, [attendanceSubjectFilter]);
 
   const handleRequestAccess = async (event) => {
     event.preventDefault();
@@ -238,20 +292,18 @@ const ParentView = ({ section = "overview" }) => {
         <div className="insight-grid">
           <div className="panel">
             <h3>Parent Summary</h3>
-            <div className="report-strip">
-              <div>
-                <span>Q1 Average</span>
-                <strong>{linkedStudent.q1Average ?? "N/A"}</strong>
+            {subjectGradeSnapshot.length ? (
+              <div className="report-strip">
+                {subjectGradeSnapshot.map((subject) => (
+                  <div key={subject.id}>
+                    <span>{subject.name}</span>
+                    <strong>{subject.grade}</strong>
+                  </div>
+                ))}
               </div>
-              <div>
-                <span>Q2 Average</span>
-                <strong>{linkedStudent.q2Average ?? "N/A"}</strong>
-              </div>
-              <div>
-                <span>Updated</span>
-                <strong>{linkedStudent.updatedLabel}</strong>
-              </div>
-            </div>
+            ) : (
+              <p className="empty-copy">No subject grades available yet.</p>
+            )}
             <p className="mt-4">{linkedStudent.teacherRemarks || "No teacher note yet."}</p>
           </div>
 
@@ -275,15 +327,15 @@ const ParentView = ({ section = "overview" }) => {
       {section === "report" && (
         <div className="panel">
           <h3>Child Academic Report</h3>
-          <table className="data-table">
+          <table className="data-table child-report-table">
             <thead>
               <tr>
                 <th>Subject</th>
                 <th>Teacher</th>
-                <th>Q1 Scores</th>
-                <th>Q2 Scores</th>
-                <th>Q3 Scores</th>
-                <th>Q4 Scores</th>
+                <th>Quarter 1</th>
+                <th>Quarter 2</th>
+                <th>Quarter 3</th>
+                <th>Quarter 4</th>
                 <th>Final Grade</th>
                 <th>Attendance</th>
                 <th>Status</th>
@@ -295,7 +347,11 @@ const ParentView = ({ section = "overview" }) => {
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
                   {QUARTER_OPTIONS.map((quarter) => (
-                    <td key={quarter.key} data-label={`${quarter.label} Scores`}>{formatQuarterScores(subject, quarter.key)}</td>
+                    <td key={quarter.key} data-label={quarter.label}>
+                      <div className="quarter-score-summary">
+                        <strong>{subject[quarter.key] ?? "N/A"}</strong>
+                      </div>
+                    </td>
                   ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
                   <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
@@ -313,64 +369,74 @@ const ParentView = ({ section = "overview" }) => {
       )}
 
       {section === "attendance" && (
-        <div className="insight-grid">
-          <div className="panel">
-            <h3>Attendance Overview</h3>
-            <div className="progress-track large">
-              <div className="progress-fill" style={{ width: `${linkedStudent.attendanceRate || 0}%` }} />
-            </div>
-            <p className="mt-4">Current attendance: <strong>{linkedStudent.attendanceLabel}</strong></p>
-          </div>
-
-          <div className="panel">
-            <h3>Subject Attendance</h3>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Subject</th>
-                  <th>Teacher</th>
-                  <th>Attendance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linkedStudent.subjects.map((subject) => (
-                  <tr key={subject.id}>
-                    <td data-label="Subject">{subject.name}</td>
-                    <td data-label="Teacher">{subject.teacher}</td>
-                    <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
-                  </tr>
-                ))}
-                {linkedStudent.subjects.length === 0 && (
-                  <tr>
-                    <td colSpan="3">No subject attendance records available yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {section === "updates" && (
         <div className="panel">
-          <h3>Recent Updates</h3>
-          {linkedStudent.recentActivity.length ? (
-            <ul className="stack-list">
-              {linkedStudent.recentActivity.map((activity, index) => (
-                <li key={`${activity.date}-${index}`} className="list-row">
-                  <div>
-                    <strong>{activity.activity}</strong>
-                    <p>{activity.result}</p>
-                  </div>
-                  <span>{activity.date}</span>
-                </li>
+          <div className="panel-header">
+            <h3>Attendance Report</h3>
+          </div>
+          <div className="table-filter-bar report-table-controls">
+            <label className="selector-field">
+              <span>Subject</span>
+              <select
+                value={attendanceSubjectFilter}
+                onChange={(event) => setAttendanceSubjectFilter(event.target.value)}
+              >
+                <option value="">All Subjects</option>
+                {attendanceSubjectOptions.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={currentAttendancePage <= 1}
+                onClick={() => setAttendancePage((page) => Math.max(1, page - 1))}
+              >
+                Previous
+              </button>
+              <span>Page {currentAttendancePage} of {attendanceTotalPages}</span>
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={currentAttendancePage >= attendanceTotalPages}
+                onClick={() => setAttendancePage((page) => Math.min(attendanceTotalPages, page + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Subject</th>
+                <th>Status</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedAttendanceRows.map((row) => (
+                <tr key={row.id}>
+                  <td data-label="Date">{row.date}</td>
+                  <td data-label="Subject">{row.subject}</td>
+                  <td data-label="Status">{row.status}</td>
+                  <td data-label="Notes">{row.notes || "-"}</td>
+                </tr>
               ))}
-            </ul>
-          ) : (
-            <p className="empty-copy">No recent updates.</p>
-          )}
+              {filteredAttendanceRows.length === 0 && (
+                <tr>
+                  <td colSpan="4">No attendance report available yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
+
     </div>
   );
 };

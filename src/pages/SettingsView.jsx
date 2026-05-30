@@ -7,22 +7,25 @@ import "./TeacherDashboard.css";
 
 const SettingsView = () => {
   const { currentUser, userData } = useAuth();
-  const { repositorySummary, teacherUsers, classes } = useSchoolData();
+  const { teacherUsers, classes } = useSchoolData();
   const { theme, toggleTheme } = useTheme();
   const isDarkMode = theme === "dark";
+  const showRepositoryStats = !["student", "parent"].includes(userData?.role || "");
 
   return (
     <div className="admin-view">
-      <div className="stats-grid">
-        <div className="stat-card">
-          <h4>Teachers</h4>
-          <p>{teacherUsers.length}</p>
+      {showRepositoryStats && (
+        <div className="stats-grid">
+          <div className="stat-card">
+            <h4>Teachers</h4>
+            <p>{teacherUsers.length}</p>
+          </div>
+          <div className="stat-card">
+            <h4>Sections</h4>
+            <p>{classes.length}</p>
+          </div>
         </div>
-        <div className="stat-card">
-          <h4>Sections</h4>
-          <p>{classes.length}</p>
-        </div>
-      </div>
+      )}
 
       <div className="insight-grid">
         <div className="panel">
@@ -53,28 +56,6 @@ const SettingsView = () => {
               <span>{userData?.role || "Not assigned"}</span>
             </li>
           </ul>
-        </div>
-      </div>
-
-      <div className="panel">
-        <h3>Repository Snapshot</h3>
-        <div className="report-strip">
-          <div>
-            <span>Students</span>
-            <strong>{repositorySummary.students}</strong>
-          </div>
-          <div>
-            <span>Parents</span>
-            <strong>{repositorySummary.parents}</strong>
-          </div>
-          <div>
-            <span>Live Reports</span>
-            <strong>{repositorySummary.liveReports}</strong>
-          </div>
-          <div>
-            <span>Health</span>
-            <strong>{repositorySummary.health}</strong>
-          </div>
         </div>
       </div>
     </div>

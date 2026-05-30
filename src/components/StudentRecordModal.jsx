@@ -1,47 +1,7 @@
 import React, { useEffect, useState } from "react";
 import ConfirmDialog from "./ConfirmDialog";
 
-const GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"];
-const QUARTER_OPTIONS = [
-  { key: "q1", label: "Q1" },
-  { key: "q2", label: "Q2" },
-  { key: "q3", label: "Q3" },
-  { key: "q4", label: "Q4" }
-];
-const createEmptyQuarters = () => QUARTER_OPTIONS.reduce((quarters, quarter) => ({
-  ...quarters,
-  [quarter.key]: {
-    activities: "",
-    quizzes: "",
-    exams: ""
-  }
-}), {});
-const formatScoreInputValue = (value) => Array.isArray(value) ? value.join(", ") : value ?? "";
-const hasSubjectValue = (subject) => {
-  return Object.entries(subject).some(([key, value]) => {
-    if (key === "quarters" && value && typeof value === "object") {
-      return Object.values(value).some((quarter) => (
-        quarter && typeof quarter === "object" && Object.values(quarter).some(Boolean)
-      ));
-    }
-
-    return Boolean(value);
-  });
-};
-
-export const createEmptySubject = () => ({
-  id: "",
-  name: "",
-  teacher: "",
-  activities: "",
-  quizzes: "",
-  exams: "",
-  quarters: createEmptyQuarters(),
-  q1: "",
-  q2: "",
-  q3: "",
-  q4: ""
-});
+const DEFAULT_GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10"];
 
 const buildInitialFormState = ({
   student,
@@ -63,32 +23,7 @@ const buildInitialFormState = ({
   attendance: student?.attendanceRate ?? "",
   performanceStatus: student?.performanceStatus || "On Track",
   teacherRemarks: student?.teacherRemarks || "",
-  subjects: student?.subjects?.length
-    ? student.subjects.map((subject) => ({
-      quarters: QUARTER_OPTIONS.reduce((quarters, quarter, index) => {
-        const savedQuarter = subject.quarters?.[quarter.key] || {};
-
-        return {
-          ...quarters,
-          [quarter.key]: {
-            activities: formatScoreInputValue(savedQuarter.activities ?? (index === 0 ? subject.activities : "")),
-            quizzes: formatScoreInputValue(savedQuarter.quizzes ?? (index === 0 ? subject.quizzes : "")),
-            exams: formatScoreInputValue(savedQuarter.exams ?? (index === 0 ? subject.exams : ""))
-          }
-        };
-      }, {}),
-      id: subject.id,
-      name: subject.name,
-      teacher: subject.teacher,
-      activities: formatScoreInputValue(subject.quarters?.q1?.activities ?? subject.activities),
-      quizzes: formatScoreInputValue(subject.quarters?.q1?.quizzes ?? subject.quizzes),
-      exams: formatScoreInputValue(subject.quarters?.q1?.exams ?? subject.exams),
-      q1: subject.q1 ?? "",
-      q2: subject.q2 ?? "",
-      q3: subject.q3 ?? "",
-      q4: subject.q4 ?? ""
-    }))
-    : [createEmptySubject()]
+  subjects: student?.subjects || []
 });
 
 const normalizeStudentFormState = (formState) => ({
@@ -106,27 +41,6 @@ const normalizeStudentFormState = (formState) => ({
   performanceStatus: formState.performanceStatus,
   teacherRemarks: formState.teacherRemarks.trim(),
   subjects: formState.subjects
-    .map((subject) => ({
-      id: subject.id.trim(),
-      name: subject.name.trim(),
-      teacher: subject.teacher.trim(),
-      quarters: QUARTER_OPTIONS.reduce((quarters, quarter) => ({
-        ...quarters,
-        [quarter.key]: {
-          activities: `${subject.quarters?.[quarter.key]?.activities || ""}`.trim(),
-          quizzes: `${subject.quarters?.[quarter.key]?.quizzes || ""}`.trim(),
-          exams: `${subject.quarters?.[quarter.key]?.exams || ""}`.trim()
-        }
-      }), {}),
-      activities: `${subject.quarters?.q1?.activities || subject.activities || ""}`.trim(),
-      quizzes: `${subject.quarters?.q1?.quizzes || subject.quizzes || ""}`.trim(),
-      exams: `${subject.quarters?.q1?.exams || subject.exams || ""}`.trim(),
-      q1: `${subject.q1}`.trim(),
-      q2: `${subject.q2}`.trim(),
-      q3: `${subject.q3}`.trim(),
-      q4: `${subject.q4}`.trim()
-    }))
-    .filter(hasSubjectValue)
 });
 
 const StudentRecordModal = ({
@@ -134,6 +48,7 @@ const StudentRecordModal = ({
   student,
   classOptions = [],
   teacherOptions = [],
+  gradeLevelOptions = DEFAULT_GRADE_LEVEL_OPTIONS,
   defaultClassId = "",
   defaultTeacherId = "",
   defaultTeacherName = "",
@@ -144,9 +59,14 @@ const StudentRecordModal = ({
   lockIdentityFields = false,
   requireAccountFields = true,
   accountFieldsOnly = false,
+  showAcademicFields = true,
+  showAccountActions = false,
+  deleting = false,
   saving = false,
   submitLabel = "Save Student",
   onClose,
+  onResetPassword,
+  onDelete,
   onSubmit
 }) => {
   const [formData, setFormData] = useState(() => buildInitialFormState({
@@ -179,49 +99,8 @@ const StudentRecordModal = ({
 
   const hasUnsavedChanges = JSON.stringify(normalizeStudentFormState(formData))
     !== JSON.stringify(normalizeStudentFormState(initialFormState));
-
-  const updateSubjectField = (index, field, value) => {
-    setFormData((previous) => ({
-      ...previous,
-      subjects: previous.subjects.map((subject, subjectIndex) => (
-        subjectIndex === index ? { ...subject, [field]: value } : subject
-      ))
-    }));
-  };
-
-  const updateSubjectQuarterField = (index, quarterKey, field, value) => {
-    setFormData((previous) => ({
-      ...previous,
-      subjects: previous.subjects.map((subject, subjectIndex) => (
-        subjectIndex === index
-          ? {
-            ...subject,
-            quarters: {
-              ...(subject.quarters || createEmptyQuarters()),
-              [quarterKey]: {
-                ...(subject.quarters?.[quarterKey] || {}),
-                [field]: value
-              }
-            }
-          }
-          : subject
-      ))
-    }));
-  };
-
-  const addSubjectRow = () => {
-    setFormData((previous) => ({
-      ...previous,
-      subjects: [...previous.subjects, createEmptySubject()]
-    }));
-  };
-
-  const removeSubjectRow = (index) => {
-    setFormData((previous) => ({
-      ...previous,
-      subjects: previous.subjects.filter((_, subjectIndex) => subjectIndex !== index)
-    }));
-  };
+  const canEditAcademicFields = !accountFieldsOnly && showAcademicFields;
+  const canManageAccount = Boolean(student && showAccountActions);
 
   const handleSubmitRequest = async (event) => {
     event.preventDefault();
@@ -360,7 +239,7 @@ const StudentRecordModal = ({
                   required
                 >
                   <option value="">Select grade</option>
-                  {GRADE_LEVEL_OPTIONS.map((gradeLevel) => (
+                  {gradeLevelOptions.map((gradeLevel) => (
                     <option key={gradeLevel} value={gradeLevel}>
                       {gradeLevel}
                     </option>
@@ -392,46 +271,9 @@ const StudentRecordModal = ({
                 </div>
               )
             )}
-
-            {!accountFieldsOnly && (
-              <>
-                <div className="form-group">
-                  <label>Overall Average</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.gpa}
-                    onChange={(event) => setFormData({ ...formData, gpa: event.target.value })}
-                    placeholder="Auto-computed if blank"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Attendance (%)</label>
-                  <input
-                    type="number"
-                    value={formData.attendance}
-                    onChange={(event) => setFormData({ ...formData, attendance: event.target.value })}
-                    placeholder="Optional"
-                  />
-                </div>
-
-                <div className="form-group form-group-full">
-                  <label>Performance Status</label>
-                  <select
-                    value={formData.performanceStatus}
-                    onChange={(event) => setFormData({ ...formData, performanceStatus: event.target.value })}
-                  >
-                    <option value="Excellent">Excellent</option>
-                    <option value="On Track">On Track</option>
-                    <option value="Needs Support">Needs Support</option>
-                  </select>
-                </div>
-              </>
-            )}
           </div>
 
-          {!accountFieldsOnly && (
+          {canEditAcademicFields && (
             <>
               <div className="form-group">
                 <label>Teacher Remarks</label>
@@ -442,57 +284,6 @@ const StudentRecordModal = ({
                   placeholder="Add a short academic note"
                 />
               </div>
-
-              <div className="subject-editor">
-                <div className="panel-header">
-                  <h4>Subject Scores and Quarter Grades</h4>
-                  <button type="button" className="secondary-btn" onClick={addSubjectRow}>Add Subject</button>
-                </div>
-                {formData.subjects.map((subject, index) => (
-                  <div key={`${subject.id || "subject"}-${index}`} className="subject-grid subject-score-grid">
-                    <input
-                      type="text"
-                      value={subject.name}
-                      placeholder="Subject"
-                      onChange={(event) => updateSubjectField(index, "name", event.target.value)}
-                    />
-                    <input
-                      type="text"
-                      value={subject.teacher}
-                      placeholder="Teacher"
-                      onChange={(event) => updateSubjectField(index, "teacher", event.target.value)}
-                    />
-                    {QUARTER_OPTIONS.flatMap((quarter) => [
-                      <input
-                        key={`${quarter.key}-activities`}
-                        type="text"
-                        value={subject.quarters?.[quarter.key]?.activities || ""}
-                        placeholder={`${quarter.label} Activities`}
-                        onChange={(event) => updateSubjectQuarterField(index, quarter.key, "activities", event.target.value)}
-                      />,
-                      <input
-                        key={`${quarter.key}-quizzes`}
-                        type="text"
-                        value={subject.quarters?.[quarter.key]?.quizzes || ""}
-                        placeholder={`${quarter.label} Quizzes`}
-                        onChange={(event) => updateSubjectQuarterField(index, quarter.key, "quizzes", event.target.value)}
-                      />,
-                      <input
-                        key={`${quarter.key}-exams`}
-                        type="text"
-                        value={subject.quarters?.[quarter.key]?.exams || ""}
-                        placeholder={`${quarter.label} Exams`}
-                        onChange={(event) => updateSubjectQuarterField(index, quarter.key, "exams", event.target.value)}
-                      />
-                    ])}
-                    {formData.subjects.length > 1 && (
-                      <button type="button" className="text-btn" onClick={() => removeSubjectRow(index)}>
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
             </>
           )}
 
@@ -500,6 +291,16 @@ const StudentRecordModal = ({
             <button type="submit" className="primary-btn">
               {saving ? "Saving..." : submitLabel}
             </button>
+            {canManageAccount && (
+              <>
+                <button type="button" className="secondary-btn" onClick={onResetPassword}>
+                  Reset Password
+                </button>
+                <button type="button" className="secondary-btn" disabled={deleting} onClick={onDelete}>
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </>
+            )}
             <button type="button" className="secondary-btn" onClick={handleCloseRequest}>
               Cancel
             </button>

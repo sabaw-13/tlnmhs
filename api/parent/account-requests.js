@@ -20,6 +20,17 @@ const normalizeBody = (requestBody) => {
 };
 
 const normalizeLookupValue = (value) => String(value || "").trim().toLowerCase();
+const JUNIOR_HIGH_GRADE_LEVELS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10"];
+
+const normalizeGradeLevel = (value) => {
+  const trimmedValue = String(value || "").trim();
+  if (!trimmedValue) return "";
+
+  const matchedGrade = trimmedValue.match(/\d+/)?.[0] || "";
+  const gradeLevel = matchedGrade ? `Grade ${matchedGrade}` : trimmedValue;
+
+  return JUNIOR_HIGH_GRADE_LEVELS.includes(gradeLevel) ? gradeLevel : "";
+};
 
 const getStudentNumberCandidates = (student) => [
   student?.studentNumber,
@@ -28,16 +39,35 @@ const getStudentNumberCandidates = (student) => [
   student?.idNumber
 ].map(normalizeLookupValue).filter(Boolean);
 
+const getStudentClassId = (student) => student?.classId || student?.classKey || student?.sectionId || "";
+
 const studentNumberExists = async (db, studentNumber) => {
   const normalizedStudentNumber = normalizeLookupValue(studentNumber);
   if (!normalizedStudentNumber) return false;
 
   const studentsSnapshot = await db.ref("students").get();
+  const classesSnapshot = await db.ref("classes").get();
   const students = studentsSnapshot.val() || {};
+  const classEntries = Object.entries(classesSnapshot.val() || {});
+  const juniorHighClassIds = new Set(
+    classEntries
+      .filter(([, classroom]) => normalizeGradeLevel(classroom?.gradeLevel))
+      .map(([classId]) => classId)
+  );
+  const nonJuniorHighClassIds = new Set(
+    classEntries
+      .filter(([, classroom]) => !normalizeGradeLevel(classroom?.gradeLevel))
+      .map(([classId]) => classId)
+  );
 
-  return Object.values(students).some((student) => (
-    getStudentNumberCandidates(student).includes(normalizedStudentNumber)
-  ));
+  return Object.values(students).some((student) => {
+    const classId = getStudentClassId(student);
+    const isJuniorHighStudent = normalizeGradeLevel(student?.gradeLevel) || juniorHighClassIds.has(classId);
+
+    if (classId && nonJuniorHighClassIds.has(classId)) return false;
+
+    return isJuniorHighStudent && getStudentNumberCandidates(student).includes(normalizedStudentNumber);
+  });
 };
 
 export default async function handler(request, response) {

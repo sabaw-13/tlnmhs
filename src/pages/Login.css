@@ -11,7 +11,7 @@
   background: var(--surface-elevated);
   backdrop-filter: blur(18px);
   padding: 2.6rem;
-  border-radius: 24px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
   width: 100%;
@@ -25,13 +25,13 @@
   content: "";
   position: absolute;
   inset: 0;
-  height: 5px;
+  height: 4px;
   background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%);
 }
 
 .login-card h1 {
   font-size: 1.75rem;
-  font-weight: 850;
+  font-weight: 800;
   color: var(--text-main);
   margin: 0.35rem 0 1.8rem;
   line-height: 1.15;
@@ -39,14 +39,14 @@
 
 .form-group {
   text-align: left;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.125rem;
 }
 
 .form-group label {
   display: block;
-  font-size: 0.82rem;
-  font-weight: 800;
-  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 0.45rem;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -54,13 +54,23 @@
 
 .form-group input {
   width: 100%;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  padding: 0.8125rem 1rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
   background: var(--input-bg);
   color: var(--text-main);
+  font-size: 0.9375rem;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+
+.form-group input::placeholder {
+  color: var(--text-muted);
+}
+
+.form-group input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .password-field {
@@ -82,11 +92,11 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition: background var(--transition), color var(--transition);
 }
 
 .password-toggle:hover,
@@ -96,44 +106,44 @@
   outline: none;
 }
 
-.form-group input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--focus-ring);
-}
-
 .login-button {
   width: 100%;
-  padding: 0.85rem 1rem;
+  padding: 0.875rem 1rem;
   background: linear-gradient(135deg, var(--primary) 0%, var(--accent-strong) 100%);
   color: white;
   border: none;
-  border-radius: 14px;
-  font-weight: 800;
+  border-radius: var(--radius);
+  font-size: 0.9375rem;
+  font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 16px 28px -20px rgba(37, 99, 235, 0.75);
-  transition: transform 0.2s, filter 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.35);
+  transition: transform var(--transition), filter var(--transition), box-shadow var(--transition);
+  margin-top: 0.25rem;
 }
 
 .login-button:hover {
-  filter: brightness(1.04);
+  filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 20px 34px -22px rgba(20, 184, 166, 0.85);
+  box-shadow: 0 6px 20px rgba(20, 184, 166, 0.5);
 }
 
 .login-button:disabled {
   cursor: not-allowed;
-  opacity: 0.65;
+  opacity: 0.6;
+  transform: none;
 }
 
 .login-link-button {
   width: 100%;
-  margin-top: 0.85rem;
-  padding: 0.65rem;
+  margin-top: 0.75rem;
+  padding: 0.625rem;
   border: 0;
   background: transparent;
   color: var(--primary);
-  font-weight: 800;
+  font-size: 0.875rem;
+  font-weight: 700;
   cursor: pointer;
+  transition: color var(--transition);
 }
 
 .login-link-button:hover,
@@ -146,25 +156,25 @@
   color: var(--success-text);
   font-size: 0.875rem;
   margin-bottom: 1rem;
-  padding: 0.5rem;
+  padding: 0.75rem 1rem;
   background: var(--success-bg);
   border: 1px solid var(--success-border);
-  border-radius: 10px;
+  border-radius: var(--radius);
+  text-align: left;
 }
 
 @media (max-width: 640px) {
   .login-container {
-    padding: 0.85rem;
+    padding: 0.875rem;
   }
 
   .login-card {
-    padding: 1.5rem 1.1rem;
-    border-radius: 20px;
+    padding: 1.5rem 1.25rem;
+    border-radius: var(--radius-lg);
   }
 
   .login-card h1 {
-    font-size: 1.35rem;
+    font-size: 1.375rem;
     margin-bottom: 1.5rem;
   }
-
 }
