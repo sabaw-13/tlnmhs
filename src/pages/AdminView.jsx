@@ -318,7 +318,6 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
         pendingRequests
       };
     });
-  const atRiskStudents = students.filter((student) => student.performanceStatus === "Needs Support");
   const pendingParentAccountRequests = parentAccountRequests.filter((request) => request.status === "pending");
   const pendingParentStudentAccessRequests = parentStudentAccessRequests.filter((request) => request.status === "pending");
   const pendingRequests = [
@@ -1198,36 +1197,6 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
             </table>
           </div>
 
-          <div className="panel">
-            <h3>Students Requiring Intervention</h3>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Section</th>
-                  <th>Average</th>
-                  <th>Attendance</th>
-                  <th>Alerts</th>
-                </tr>
-              </thead>
-              <tbody>
-                {atRiskStudents.map((student) => (
-                  <tr key={student.id}>
-                    <td data-label="Student">{student.name}</td>
-                    <td data-label="Section">{student.className}</td>
-                    <td data-label="Average">{student.gpa ?? "N/A"}</td>
-                    <td data-label="Attendance">{student.attendanceLabel}</td>
-                    <td data-label="Alerts">{student.alerts.join(" ")}</td>
-                  </tr>
-                ))}
-                {atRiskStudents.length === 0 && (
-                  <tr>
-                    <td colSpan="5">No at-risk students identified from the current repository data.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
         </>
       )}
 

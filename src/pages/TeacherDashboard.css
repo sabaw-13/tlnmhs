@@ -125,7 +125,7 @@
 
 .pagination-controls span {
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 700;
 }
 
@@ -213,7 +213,7 @@
 .toolbar h3,
 .panel h3,
 .empty-state h3 {
-  font-size: 1.125rem;
+  font-size: 1.05rem;
   font-weight: 750;
   margin-bottom: 0.3rem;
   color: var(--text-main);
@@ -233,7 +233,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .selector-field span {
@@ -249,12 +249,12 @@
 .form-group textarea,
 .subject-grid input {
   width: 100%;
-  padding: 0.75rem 0.9rem;
+  padding: 0.68rem 0.8rem;
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   background: var(--input-bg);
   color: var(--text-main);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
   outline: none;
 }
@@ -294,7 +294,7 @@
 }
 
 .panel-header h4 {
-  font-size: 0.9375rem;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
@@ -314,7 +314,7 @@
 .report-strip div {
   min-width: 0;
   flex: 1 1 130px;
-  padding: 0.8rem 1rem;
+  padding: 0.72rem 0.85rem;
   background: var(--surface-subtle);
   border-radius: var(--radius);
   border: 1px solid var(--surface-subtle-border);
@@ -324,12 +324,12 @@
 }
 
 .report-strip span {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: var(--text-secondary);
 }
 
 .report-strip strong {
-  font-size: 1rem;
+  font-size: 0.92rem;
   color: var(--text-main);
   font-weight: 750;
 }
@@ -384,7 +384,7 @@
 .list-row p,
 .list-row span {
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 /* ─── Class cards ────────────────────────────────────────── */
@@ -509,9 +509,9 @@
 
 .data-table th {
   background: var(--table-head-bg);
-  padding: 0.875rem 1rem;
+  padding: 0.78rem 0.85rem;
   text-align: left;
-  font-size: 0.76rem;
+  font-size: 0.71rem;
   font-weight: 750;
   color: var(--table-head-text);
   text-transform: uppercase;
@@ -519,9 +519,9 @@
 }
 
 .data-table td {
-  padding: 0.875rem 1rem;
+  padding: 0.78rem 0.85rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   vertical-align: top;
   word-break: break-word;
   color: var(--text-main);
@@ -548,12 +548,12 @@
   cursor: pointer;
   font-weight: 700;
   transition: transform var(--transition), opacity var(--transition), background var(--transition), box-shadow var(--transition);
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .primary-btn,
 .secondary-btn {
-  padding: 0.675rem 1rem;
+  padding: 0.6rem 0.9rem;
   border-radius: var(--radius);
   display: inline-flex;
   align-items: center;
@@ -1229,7 +1229,7 @@
 .form-group label {
   display: block;
   margin-bottom: 0.4rem;
-  font-size: 0.875rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-secondary);
 }
