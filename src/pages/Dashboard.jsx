@@ -6,6 +6,7 @@ import {
   BarChart3,
   BookOpen,
   CalendarCheck,
+  Receipt,
   ClipboardCheck,
   GraduationCap,
   Inbox,
@@ -39,11 +40,6 @@ const HEADER_COPY = {
       eyebrow: "Dashboard",
       title: "School Operations",
       description: "Monitor enrollment, advisory assignments, parent access, and academic records."
-    },
-    requests: {
-      eyebrow: "Requests",
-      title: "Request Center",
-      description: "Review parent account and student access requests."
     },
     students: {
       eyebrow: "Students",
@@ -102,6 +98,11 @@ const HEADER_COPY = {
       title: "Gradebook",
       description: "Update quarterly scores and final subject grades."
     },
+    fees: {
+      eyebrow: "Fee",
+      title: "Fee Manager",
+      description: "Add and manage advisory class fees for your section."
+    },
     reports: {
       eyebrow: "Reports",
       title: "Class Reports",
@@ -134,6 +135,11 @@ const HEADER_COPY = {
       title: "My Attendance",
       description: "Check your current attendance record."
     },
+    fees: {
+      eyebrow: "Fees",
+      title: "My Fees",
+      description: "Review advisory class fees and payment status."
+    },
     settings: {
       eyebrow: "Settings",
       title: "Account Settings",
@@ -160,6 +166,11 @@ const HEADER_COPY = {
       eyebrow: "Attendance",
       title: "Attendance",
       description: "Monitor attendance records for linked students."
+    },
+    fees: {
+      eyebrow: "Fees",
+      title: "Student Fees",
+      description: "Review assigned fees and payment status for linked students."
     },
     settings: {
       eyebrow: "Settings",
@@ -228,7 +239,6 @@ const Dashboard = () => {
     if (role === "admin") {
       return [
         ...common,
-        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={19} /> },
         { path: "/dashboard/students", label: "Students", icon: <Users size={19} /> },
         { path: "/dashboard/classes", label: "Sections", icon: <School size={19} /> },
         { path: "/dashboard/teachers", label: "Teachers", icon: <UserCog size={19} /> },
@@ -245,6 +255,7 @@ const Dashboard = () => {
         { path: "/dashboard/subjects", label: "Subjects", icon: <BookOpen size={19} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <CalendarCheck size={19} /> },
         { path: "/dashboard/gradebook", label: "Gradebook", icon: <ClipboardCheck size={19} /> },
+        { path: "/dashboard/fees", label: "Fee", icon: <Receipt size={19} /> },
         settingsItem
       ];
     }
@@ -254,6 +265,7 @@ const Dashboard = () => {
         ...common,
         { path: "/dashboard/grades", label: "My Grades", icon: <GraduationCap size={19} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={19} /> },
+        { path: "/dashboard/fees", label: "Fees", icon: <Receipt size={19} /> },
         settingsItem
       ];
     }
@@ -264,6 +276,7 @@ const Dashboard = () => {
         { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={19} /> },
         { path: "/dashboard/child-report", label: "Child Report", icon: <BookOpen size={19} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={19} /> },
+        { path: "/dashboard/fees", label: "Fees", icon: <Receipt size={19} /> },
         settingsItem
       ];
     }
@@ -277,7 +290,7 @@ const Dashboard = () => {
         return (
           <>
             <Route index element={<AdminView section="dashboard" setHeaderActions={setHeaderActions} />} />
-            <Route path="requests" element={<AdminView section="requests" setHeaderActions={setHeaderActions} />} />
+            <Route path="requests" element={<Navigate to="/dashboard/parents" replace />} />
             <Route path="students" element={<AdminView section="students" setHeaderActions={setHeaderActions} />} />
             <Route path="classes" element={<AdminView section="classes" setHeaderActions={setHeaderActions} />} />
             <Route path="teachers" element={<AdminView section="teachers" setHeaderActions={setHeaderActions} />} />
@@ -294,6 +307,7 @@ const Dashboard = () => {
             <Route path="subjects" element={<TeacherView section="subjects" setHeaderActions={setHeaderActions} />} />
             <Route path="attendance" element={<TeacherView section="attendance" setHeaderActions={setHeaderActions} />} />
             <Route path="gradebook" element={<TeacherView section="gradebook" setHeaderActions={setHeaderActions} />} />
+            <Route path="fees" element={<TeacherView section="fees" setHeaderActions={setHeaderActions} />} />
             <Route path="reports" element={<Navigate to="/dashboard" replace />} />
           </>
         );
@@ -304,6 +318,7 @@ const Dashboard = () => {
             <Route path="join-class" element={<Navigate to="/dashboard" replace />} />
             <Route path="grades" element={<StudentView section="grades" />} />
             <Route path="attendance" element={<StudentView section="attendance" />} />
+            <Route path="fees" element={<StudentView section="fees" />} />
           </>
         );
       case "parent":
@@ -313,6 +328,7 @@ const Dashboard = () => {
             <Route path="requests" element={<ParentView section="requests" />} />
             <Route path="child-report" element={<ParentView section="report" />} />
             <Route path="attendance" element={<ParentView section="attendance" />} />
+            <Route path="fees" element={<ParentView section="fees" />} />
             <Route path="updates" element={<Navigate to="/dashboard" replace />} />
           </>
         );

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { PencilLine, Plus, Power } from "lucide-react";
+import { Inbox, PencilLine, Plus, Power } from "lucide-react";
 import { formatPersonName, formatShortDate } from "../utils/reporting";
 import { useSchoolData } from "../context/SchoolDataContext";
 import StudentRecordModal from "../components/StudentRecordModal";
@@ -10,6 +10,17 @@ import "./TeacherDashboard.css";
 
 const BULK_STUDENT_TEMPLATE_HEADERS = "last name,first name,middle initial,grade level,student id number,section,email";
 const noopHeaderActions = () => {};
+const ADMIN_DASHBOARD_COLORS = [
+  "#2563eb",
+  "#14b8a6",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#06b6d4",
+  "#84cc16",
+  "#f97316"
+];
+const CALENDAR_WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const getSectionOnlyLabel = (value) => {
   const trimmedValue = String(value || "").trim();
   if (!trimmedValue) return "";
@@ -178,6 +189,7 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
     classCode: "",
     teacherId: ""
   });
+  const [showRequestsModal, setShowRequestsModal] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
@@ -257,6 +269,23 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
     }
   };
 
+  const pendingParentAccountRequests = parentAccountRequests.filter((request) => request.status === "pending");
+  const pendingParentStudentAccessRequests = parentStudentAccessRequests.filter((request) => request.status === "pending");
+  const pendingRequests = [
+    ...pendingParentAccountRequests.map((request) => ({
+      ...request,
+      requestType: "parent-account",
+      requestLabel: "Parent Account",
+      requestedAtValue: request.requestedAt || request.createdAt || ""
+    })),
+    ...pendingParentStudentAccessRequests.map((request) => ({
+      ...request,
+      requestType: "student-access",
+      requestLabel: "Student Access",
+      requestedAtValue: request.requestedAt || request.createdAt || ""
+    }))
+  ].sort((left, right) => new Date(right.requestedAtValue || 0) - new Date(left.requestedAtValue || 0));
+
   useEffect(() => {
     if (loading || error) {
       setHeaderActions(null);
@@ -283,12 +312,24 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
           Add Teacher
         </button>
       );
+    } else if (section === "parents") {
+      setHeaderActions(
+        <button
+          type="button"
+          className="secondary-btn request-header-btn"
+          onClick={() => setShowRequestsModal(true)}
+        >
+          <Inbox size={16} />
+          <span>Requests</span>
+          {pendingRequests.length > 0 && <span className="request-dot" aria-hidden="true" />}
+        </button>
+      );
     } else {
       setHeaderActions(null);
     }
 
     return () => setHeaderActions(null);
-  }, [error, loading, section, setHeaderActions]);
+  }, [error, loading, pendingRequests.length, section, setHeaderActions]);
 
   if (loading) return <div className="loading-container">Loading system stats...</div>;
   if (error) return <div className="error-container">{error}</div>;
@@ -318,22 +359,6 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
         pendingRequests
       };
     });
-  const pendingParentAccountRequests = parentAccountRequests.filter((request) => request.status === "pending");
-  const pendingParentStudentAccessRequests = parentStudentAccessRequests.filter((request) => request.status === "pending");
-  const pendingRequests = [
-    ...pendingParentAccountRequests.map((request) => ({
-      ...request,
-      requestType: "parent-account",
-      requestLabel: "Parent Account",
-      requestedAtValue: request.requestedAt || request.createdAt || ""
-    })),
-    ...pendingParentStudentAccessRequests.map((request) => ({
-      ...request,
-      requestType: "student-access",
-      requestLabel: "Student Access",
-      requestedAtValue: request.requestedAt || request.createdAt || ""
-    }))
-  ].sort((left, right) => new Date(right.requestedAtValue || 0) - new Date(left.requestedAtValue || 0));
   const selectedClass = classReports.find((classroom) => classroom.id === selectedClassId) || classReports[0] || null;
   const selectedClassTeacher = selectedClass?.teacherName || selectedClass?.adviserName || selectedClass?.teacherEmail || selectedClass?.adviserEmail || "Unassigned";
   const sectionLabelByClassId = classReports.reduce((lookup, classroom) => {
@@ -384,6 +409,69 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
       sectionCount: sections.length,
       studentCount: sections.reduce((total, classroom) => total + classroom.students.length, 0)
     };
+  });
+  const dashboardDate = new Date();
+  const currentCalendarMonthLabel = dashboardDate.toLocaleString(undefined, {
+    month: "long",
+    year: "numeric"
+  });
+  const calendarMonthStart = new Date(dashboardDate.getFullYear(), dashboardDate.getMonth(), 1);
+  const calendarDayCells = Array.from({ length: 42 }, (_, index) => {
+    const cellDate = new Date(calendarMonthStart);
+    cellDate.setDate(index - calendarMonthStart.getDay() + 1);
+
+    return {
+      key: cellDate.toISOString(),
+      label: cellDate.getDate(),
+      isCurrentMonth: cellDate.getMonth() === dashboardDate.getMonth(),
+      isToday: cellDate.toDateString() === dashboardDate.toDateString()
+    };
+  });
+  const gradeLevelCountMap = students.reduce((counts, student) => {
+    const key = String(student.gradeLevel || "Unassigned").trim() || "Unassigned";
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const orderedGradeLevels = [
+    ...gradeLevels,
+    ...Object.keys(gradeLevelCountMap).filter((gradeLevel) => !gradeLevels.includes(gradeLevel))
+  ];
+  const gradeLevelDistribution = orderedGradeLevels
+    .map((gradeLevel, index) => ({
+      label: gradeLevel,
+      count: gradeLevelCountMap[gradeLevel] || 0,
+      color: ADMIN_DASHBOARD_COLORS[index % ADMIN_DASHBOARD_COLORS.length]
+    }))
+    .filter((item) => item.count > 0);
+  const totalGradeLevelStudents = gradeLevelDistribution.reduce((sum, item) => sum + item.count, 0);
+  let gradeLevelDistributionOffset = 0;
+  const gradeLevelPieSegments = gradeLevelDistribution.map((item) => {
+    const percent = totalGradeLevelStudents ? (item.count / totalGradeLevelStudents) * 100 : 0;
+    const segment = {
+      ...item,
+      dashArray: `${percent} ${100 - percent}`,
+      dashOffset: 25 - gradeLevelDistributionOffset
+    };
+    gradeLevelDistributionOffset += percent;
+    return segment;
+  });
+  const accountDistribution = [
+    { label: "Students", count: repositorySummary.students || 0, color: ADMIN_DASHBOARD_COLORS[0] },
+    { label: "Teachers", count: repositorySummary.teachers || 0, color: ADMIN_DASHBOARD_COLORS[2] },
+    { label: "Parents", count: repositorySummary.parents || 0, color: ADMIN_DASHBOARD_COLORS[4] },
+    { label: "Sections", count: repositorySummary.classes || 0, color: ADMIN_DASHBOARD_COLORS[6] }
+  ].filter((item) => item.count > 0);
+  const totalAccountDistribution = accountDistribution.reduce((sum, item) => sum + item.count, 0);
+  let accountDistributionOffset = 0;
+  const accountPieSegments = accountDistribution.map((item) => {
+    const percent = totalAccountDistribution ? (item.count / totalAccountDistribution) * 100 : 0;
+    const segment = {
+      ...item,
+      dashArray: `${percent} ${100 - percent}`,
+      dashOffset: 25 - accountDistributionOffset
+    };
+    accountDistributionOffset += percent;
+    return segment;
   });
 
   const handleSaveStudent = async (formData) => {
@@ -679,6 +767,59 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
     }
   };
 
+  const requestListContent = pendingRequests.length ? (
+    <ul className="stack-list">
+      {pendingRequests.map((request) => {
+        const isParentAccountRequest = request.requestType === "parent-account";
+        const isSaving = isParentAccountRequest
+          ? savingParentRequestId === request.id
+          : savingAccessRequestId === request.id;
+
+        return (
+          <li key={`${request.requestType}-${request.id}`} className="list-row">
+            <div>
+              <strong>{isParentAccountRequest ? request.name || "Parent" : request.parentName || "Parent"}</strong>
+              <p>
+                <span className="meta-badge">{request.requestLabel}</span>{" "}
+                {isParentAccountRequest
+                  ? `${request.email || "No email provided"} | Student ID ${request.studentNumber || "N/A"}`
+                  : `${request.studentName || "Student"} ${request.studentNumber ? `(${request.studentNumber})` : ""}`}
+              </p>
+            </div>
+            <div className="table-actions">
+              <button
+                type="button"
+                className="primary-btn"
+                disabled={isSaving}
+                onClick={() => (
+                  isParentAccountRequest
+                    ? handleParentAccountDecision(request, "accept")
+                    : handleStudentAccessDecision(request, "accept")
+                )}
+              >
+                {isSaving ? "Saving..." : "Accept"}
+              </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={isSaving}
+                onClick={() => (
+                  isParentAccountRequest
+                    ? handleParentAccountDecision(request, "reject")
+                    : handleStudentAccessDecision(request, "reject")
+                )}
+              >
+                Decline
+              </button>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  ) : (
+    <p className="empty-copy">No requests are waiting for approval.</p>
+  );
+
   return (
     <div className="admin-view">
       {feedback && (
@@ -697,111 +838,152 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
       )}
 
       {(section === "dashboard" || section === "overview") && (
-        <div className="insight-grid">
-          <div className="panel">
-            <h3>Academic Snapshot</h3>
+        <div className="dashboard-overview-grid">
+          <div className="dashboard-main-column">
+            <div className="panel">
+              <h3>Academic Snapshot</h3>
             <div className="report-strip">
               <div>
                 <span>Students with Section</span>
                 <strong>{repositorySummary.studentsWithClasses}/{repositorySummary.students}</strong>
               </div>
-              <div>
-                <span>Live Reports</span>
-                <strong>{repositorySummary.liveReports}</strong>
-              </div>
-              <div>
+                <div>
+                  <span>Live Reports</span>
+                  <strong>{repositorySummary.liveReports}</strong>
+                </div>
+                <div>
                 <span>At Risk</span>
                 <strong>{repositorySummary.atRiskStudents}</strong>
               </div>
             </div>
-            <p className="mt-4">
-              Average GPA is <strong>{repositorySummary.averageGpa ?? "N/A"}</strong> and average attendance is{" "}
-              <strong>{repositorySummary.averageAttendance ? `${repositorySummary.averageAttendance}%` : "N/A"}</strong>.
-            </p>
           </div>
 
-          <div className="panel">
-            <h3>Recent Repository Activity</h3>
-            {recentUpdates.length ? (
-              <ul className="stack-list">
-                {recentUpdates.map((student) => (
-                  <li key={student.id} className="list-row">
-                    <div>
-                      <strong>{student.name}</strong>
-                      <p>{student.recentActivity[0]?.result || "Student record updated."}</p>
-                    </div>
-                    <span>{student.updatedLabel}</span>
-                  </li>
+            <div className="panel">
+              <div className="panel-header">
+                <h3>Enrollment by Grade</h3>
+                <span className="meta-badge">{totalGradeLevelStudents} students</span>
+              </div>
+              {gradeLevelPieSegments.length ? (
+                <div className="subject-pie-panel">
+                  <div className="subject-pie-chart-wrap" aria-hidden="true">
+                    <svg viewBox="0 0 42 42" className="subject-pie-chart">
+                      <circle className="subject-pie-track" cx="21" cy="21" r="15.9155" />
+                      {gradeLevelPieSegments.map((segment) => (
+                        <circle
+                          key={segment.label}
+                          className="subject-pie-segment"
+                          cx="21"
+                          cy="21"
+                          r="15.9155"
+                          stroke={segment.color}
+                          strokeDasharray={segment.dashArray}
+                          strokeDashoffset={segment.dashOffset}
+                        />
+                      ))}
+                    </svg>
+                  </div>
+                  <ul className="subject-pie-legend">
+                    {gradeLevelDistribution.map((item) => (
+                      <li key={item.label} className="subject-pie-legend-item">
+                        <span className="subject-pie-swatch" style={{ backgroundColor: item.color }} />
+                        <div>
+                          <strong>{item.label}</strong>
+                          <p>{item.count} student{item.count === 1 ? "" : "s"}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="empty-copy">No enrolled students yet.</p>
+              )}
+            </div>
+
+            <div className="panel">
+              <h3>Recent Repository Activity</h3>
+              {recentUpdates.length ? (
+                <ul className="stack-list">
+                  {recentUpdates.map((student) => (
+                    <li key={student.id} className="list-row">
+                      <div>
+                        <strong>{student.name}</strong>
+                        <p>{student.recentActivity[0]?.result || "Student record updated."}</p>
+                      </div>
+                      <span>{student.updatedLabel}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-copy">No repository updates captured yet.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="dashboard-side-stack">
+            <div className="panel calendar-panel">
+              <div className="panel-header">
+                <h3>Calendar</h3>
+                <span className="meta-badge">{currentCalendarMonthLabel}</span>
+              </div>
+              <div className="calendar-grid calendar-grid-head">
+                {CALENDAR_WEEKDAY_LABELS.map((day) => (
+                  <span key={day} className="calendar-weekday">{day}</span>
                 ))}
-              </ul>
-            ) : (
-              <p className="empty-copy">No repository updates captured yet.</p>
-            )}
+              </div>
+              <div className="calendar-grid calendar-grid-body">
+                {calendarDayCells.map((cell) => (
+                  <span
+                    key={cell.key}
+                    className={`calendar-day${cell.isCurrentMonth ? "" : " muted"}${cell.isToday ? " today" : ""}`}
+                  >
+                    {cell.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel admin-distribution-panel">
+              <div className="panel-header">
+                <h3>Repository Distribution</h3>
+                <span className="meta-badge">{totalAccountDistribution} records</span>
+              </div>
+              {accountPieSegments.length ? (
+                <div className="subject-pie-panel">
+                  <div className="subject-pie-chart-wrap" aria-hidden="true">
+                    <svg viewBox="0 0 42 42" className="subject-pie-chart">
+                      <circle className="subject-pie-track" cx="21" cy="21" r="15.9155" />
+                      {accountPieSegments.map((segment) => (
+                        <circle
+                          key={segment.label}
+                          className="subject-pie-segment"
+                          cx="21"
+                          cy="21"
+                          r="15.9155"
+                          stroke={segment.color}
+                          strokeDasharray={segment.dashArray}
+                          strokeDashoffset={segment.dashOffset}
+                        />
+                      ))}
+                    </svg>
+                  </div>
+                  <ul className="subject-pie-legend">
+                    {accountDistribution.map((item) => (
+                      <li key={item.label} className="subject-pie-legend-item">
+                        <span className="subject-pie-swatch" style={{ backgroundColor: item.color }} />
+                        <div>
+                          <strong>{item.label}</strong>
+                          <p>{item.count}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="empty-copy">Distribution will appear once records are available.</p>
+              )}
+            </div>
           </div>
         </div>
-      )}
-
-      {section === "requests" && (
-        <>
-          <div className="panel">
-            <div className="panel-header">
-              <h3>Pending Requests</h3>
-              <span className="meta-badge">{pendingRequests.length} pending</span>
-            </div>
-            {pendingRequests.length ? (
-              <ul className="stack-list">
-                {pendingRequests.map((request) => {
-                  const isParentAccountRequest = request.requestType === "parent-account";
-                  const isSaving = isParentAccountRequest
-                    ? savingParentRequestId === request.id
-                    : savingAccessRequestId === request.id;
-
-                  return (
-                    <li key={`${request.requestType}-${request.id}`} className="list-row">
-                      <div>
-                        <strong>{isParentAccountRequest ? request.name || "Parent" : request.parentName || "Parent"}</strong>
-                        <p>
-                          <span className="meta-badge">{request.requestLabel}</span>{" "}
-                          {isParentAccountRequest
-                            ? `${request.email || "No email provided"} | Student ID ${request.studentNumber || "N/A"}`
-                            : `${request.studentName || "Student"} ${request.studentNumber ? `(${request.studentNumber})` : ""}`}
-                        </p>
-                      </div>
-                      <div className="table-actions">
-                        <button
-                          type="button"
-                          className="primary-btn"
-                          disabled={isSaving}
-                          onClick={() => (
-                            isParentAccountRequest
-                              ? handleParentAccountDecision(request, "accept")
-                              : handleStudentAccessDecision(request, "accept")
-                          )}
-                        >
-                          {isSaving ? "Saving..." : "Accept"}
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary-btn"
-                          disabled={isSaving}
-                          onClick={() => (
-                            isParentAccountRequest
-                              ? handleParentAccountDecision(request, "reject")
-                              : handleStudentAccessDecision(request, "reject")
-                          )}
-                        >
-                          Decline
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="empty-copy">No requests are waiting for approval.</p>
-            )}
-          </div>
-        </>
       )}
 
       {section === "students" && (
@@ -1167,6 +1349,23 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
           </table>
           </div>
         </>
+      )}
+
+      {showRequestsModal && (
+        <div className="modal-overlay" onClick={() => setShowRequestsModal(false)}>
+          <div className="modal-content" onClick={(event) => event.stopPropagation()}>
+            <div className="panel-header">
+              <h3>Pending Requests</h3>
+              <span className="meta-badge">{pendingRequests.length} pending</span>
+            </div>
+            {requestListContent}
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setShowRequestsModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {section === "reports" && (

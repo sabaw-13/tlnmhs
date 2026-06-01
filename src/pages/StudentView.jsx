@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
+import { normalizeStoredScoreEntry } from "../utils/reporting";
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
@@ -37,6 +38,40 @@ const getSubjectSnapshotGrade = (subject) => (
   ?? subject.q1
   ?? "N/A"
 );
+const formatCurrency = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "N/A";
+
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};
+const normalizeOptionalScoreArray = (value) => {
+  if (value === null || value === undefined || value === "") return [];
+  if (Array.isArray(value)) return value.map((score) => normalizeStoredScoreEntry(score));
+  return [normalizeStoredScoreEntry(value)];
+};
+const getQuarterScoreBreakdown = (subject, quarterKey) => {
+  const quarter = subject?.quarters?.[quarterKey] || {};
+
+  return {
+    quizzes: normalizeOptionalScoreArray(quarter.writtenWork?.quizzes ?? quarter.quizzes),
+    longTests: normalizeOptionalScoreArray(quarter.writtenWork?.longTests),
+    activities: normalizeOptionalScoreArray(quarter.performanceTask?.activities ?? quarter.activities),
+    projects: normalizeOptionalScoreArray(quarter.performanceTask?.projects),
+    exams: normalizeOptionalScoreArray(quarter.finalExam?.exams ?? quarter.exams)
+  };
+};
+const formatScoreListForDisplay = (values = []) => {
+  const normalizedValues = values
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return normalizedValues.length ? normalizedValues.join(", ") : "N/A";
+};
 
 const StudentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -51,8 +86,10 @@ const StudentView = ({ section = "overview" }) => {
   const [classCode, setClassCode] = useState("");
   const [joinFeedback, setJoinFeedback] = useState(null);
   const [joiningClass, setJoiningClass] = useState(false);
+  const [gradeSubjectFilter, setGradeSubjectFilter] = useState("");
   const [attendanceSubjectFilter, setAttendanceSubjectFilter] = useState("");
   const [attendancePage, setAttendancePage] = useState(1);
+  const [quarterBreakdownModal, setQuarterBreakdownModal] = useState(null);
   const isDashboardSection = section === "dashboard" || section === "overview";
 
   const pendingRequest = classes
@@ -123,8 +160,10 @@ const StudentView = ({ section = "overview" }) => {
   );
 
   useEffect(() => {
+    setGradeSubjectFilter("");
     setAttendanceSubjectFilter("");
     setAttendancePage(1);
+    setQuarterBreakdownModal(null);
   }, [currentStudent?.id]);
 
   useEffect(() => {
@@ -153,6 +192,25 @@ const StudentView = ({ section = "overview" }) => {
     name: subject.name,
     grade: getSubjectSnapshotGrade(subject)
   }));
+  const gradeSubjectOptions = [...new Set(currentStudent.subjects.map((subject) => subject.name))];
+  const filteredGradeSubjects = gradeSubjectFilter
+    ? currentStudent.subjects.filter((subject) => subject.name === gradeSubjectFilter)
+    : currentStudent.subjects;
+  const currentClass = classes.find((classroom) => classroom.id === currentStudent.classId) || null;
+  const classFees = Object.entries(currentClass?.fees || {})
+    .map(([id, fee]) => {
+      const payment = fee?.payments?.[currentStudent.id] || null;
+      return {
+        id,
+        ...fee,
+        status: payment?.paid ? "Paid" : "Unpaid",
+        paidAt: payment?.paidAt || ""
+      };
+    })
+    .sort((left, right) => (
+      String(left.dueDate || "").localeCompare(String(right.dueDate || ""))
+      || String(left.name || "").localeCompare(String(right.name || ""))
+    ));
   const attendanceReportRows = currentStudent.classId
     ? currentStudent.subjects
       .flatMap((subject) => (
@@ -181,6 +239,15 @@ const StudentView = ({ section = "overview" }) => {
     (currentAttendancePage - 1) * ATTENDANCE_PAGE_SIZE,
     currentAttendancePage * ATTENDANCE_PAGE_SIZE
   );
+  const openQuarterBreakdownModal = (subject, quarter) => {
+    setQuarterBreakdownModal({
+      subjectName: subject.name,
+      teacherName: subject.teacher,
+      quarterLabel: quarter.label,
+      quarterGrade: subject?.[quarter.key] ?? "N/A",
+      scores: getQuarterScoreBreakdown(subject, quarter.key)
+    });
+  };
 
   return (
     <div className="student-view">
@@ -251,6 +318,22 @@ const StudentView = ({ section = "overview" }) => {
       {section === "grades" && (
         <div className="panel">
           <h3>My Academic Record</h3>
+          <div className="table-filter-bar">
+            <label className="selector-field">
+              <span>Subject</span>
+              <select
+                value={gradeSubjectFilter}
+                onChange={(event) => setGradeSubjectFilter(event.target.value)}
+              >
+                <option value="">All Subjects</option>
+                {gradeSubjectOptions.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <table className="data-table student-academic-table">
             <thead>
               <tr>
@@ -266,15 +349,19 @@ const StudentView = ({ section = "overview" }) => {
               </tr>
             </thead>
             <tbody>
-              {currentStudent.subjects.map((subject) => (
+              {filteredGradeSubjects.map((subject) => (
                 <tr key={subject.id}>
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
                   {QUARTER_OPTIONS.map((quarter) => (
                     <td key={quarter.key} data-label={quarter.label}>
-                      <div className="quarter-score-summary">
-                        <strong>{subject[quarter.key] ?? "N/A"}</strong>
-                      </div>
+                      <button
+                        type="button"
+                        className="quarter-grade-trigger"
+                        onClick={() => openQuarterBreakdownModal(subject, quarter)}
+                      >
+                        {subject[quarter.key] ?? "N/A"}
+                      </button>
                     </td>
                   ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
@@ -282,7 +369,7 @@ const StudentView = ({ section = "overview" }) => {
                   <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
-              {currentStudent.subjects.length === 0 && (
+              {filteredGradeSubjects.length === 0 && (
                 <tr>
                   <td colSpan="9">No grade records available yet.</td>
                 </tr>
@@ -357,6 +444,104 @@ const StudentView = ({ section = "overview" }) => {
           ) : (
             <p className="empty-copy">No attendance report available yet.</p>
           )}
+        </div>
+      )}
+
+      {section === "fees" && (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>My Fees</h3>
+              <p className="muted-text">{currentClass?.name || currentClass?.section || currentStudent.className || "Assigned class only"}</p>
+            </div>
+            <span className="meta-badge">{classFees.length} fee{classFees.length === 1 ? "" : "s"}</span>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Fee</th>
+                <th>Amount</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th>Paid At</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {classFees.map((fee) => (
+                <tr key={fee.id}>
+                  <td data-label="Fee">{fee.name || "N/A"}</td>
+                  <td data-label="Amount">{formatCurrency(fee.amount)}</td>
+                  <td data-label="Due Date">{fee.dueDate || "N/A"}</td>
+                  <td data-label="Status">
+                    <span className={`status-pill ${getStatusClassName(fee.status === "Paid" ? "on track" : "needs support")}`}>
+                      {fee.status}
+                    </span>
+                  </td>
+                  <td data-label="Paid At">{fee.paidAt ? fee.paidAt.slice(0, 10) : "N/A"}</td>
+                  <td data-label="Notes">{fee.notes || "N/A"}</td>
+                </tr>
+              ))}
+              {!classFees.length && (
+                <tr>
+                  <td colSpan="6">No fees assigned to your class yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {quarterBreakdownModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <div>
+                <h3>{quarterBreakdownModal.quarterLabel} Score Breakdown</h3>
+                <p className="muted-text">
+                  {quarterBreakdownModal.subjectName} - {quarterBreakdownModal.teacherName || "Teacher"}
+                </p>
+              </div>
+              <span className="meta-badge">Grade {quarterBreakdownModal.quarterGrade}</span>
+            </div>
+
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Scores</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-label="Category">Quizzes</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.quizzes)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Long Tests</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.longTests)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Activities</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.activities)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Projects</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.projects)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Exams</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.exams)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setQuarterBreakdownModal(null)}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
-import { formatShortDate, normalizeStoredScoreEntry, parseScoreEntry } from "../utils/reporting";
+import { formatPersonName, formatShortDate, normalizeStoredScoreEntry, parseScoreEntry } from "../utils/reporting";
 import ConfirmDialog from "../components/ConfirmDialog";
 import StudentRecordModal from "../components/StudentRecordModal";
 import "./TeacherDashboard.css";
@@ -118,6 +119,17 @@ const formatDateLabel = (dateValue) => {
 
   return formatShortDate(`${dateValue}T00:00:00`);
 };
+const formatCurrency = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "N/A";
+
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};
 const isWeekendDate = (dateValue) => {
   if (!dateValue) return false;
 
@@ -170,9 +182,38 @@ const buildScoreEntryValue = (scoreValue, totalValue) => {
 
   return `${normalizedScore}/${normalizedTotal}`;
 };
+const formatScoreListForDisplay = (values = []) => {
+  const normalizedValues = normalizeOptionalScoreArray(values)
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return normalizedValues.length ? normalizedValues.join(", ") : "N/A";
+};
 const noopHeaderActions = () => {};
+const SUBJECT_PIE_COLORS = [
+  "#2563eb",
+  "#14b8a6",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#06b6d4",
+  "#84cc16",
+  "#f97316"
+];
+const getStudentDisplayName = (student) => formatPersonName({
+  firstName: student?.firstName,
+  lastName: student?.lastName,
+  middleInitial: student?.middleInitial,
+  middleName: student?.middleName,
+  name: student?.name,
+  displayName: student?.displayName,
+  fallback: student?.studentNumber || student?.email || "Student"
+});
+const CALENDAR_WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderActions }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { userData, currentUser } = useAuth();
   const {
     error,
@@ -193,7 +234,10 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     saveStudentRecord,
     saveTeacherSubjects,
     saveTeacherSubjectClasses,
-    saveSubjectScores
+    saveSubjectScores,
+    saveClassFee,
+    saveClassFeePayment,
+    deleteClassFee
   } = useSchoolData();
   const [selectedClassId, setSelectedClassId] = useState("");
   const [managingStudent, setManagingStudent] = useState(null);
@@ -222,9 +266,25 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const [gradeWeights, setGradeWeights] = useState(DEFAULT_GRADE_WEIGHTS);
   const [showAssessmentModal, setShowAssessmentModal] = useState(false);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
+  const [showAttendanceReport, setShowAttendanceReport] = useState(false);
+  const [showFeeModal, setShowFeeModal] = useState(false);
+  const [showFeeListModal, setShowFeeListModal] = useState(false);
+  const [isSavingFee, setIsSavingFee] = useState(false);
+  const [activeStudentFeeTarget, setActiveStudentFeeTarget] = useState(null);
+  const [savingFeePaymentKey, setSavingFeePaymentKey] = useState("");
+  const [quarterBreakdownModal, setQuarterBreakdownModal] = useState(null);
+  const [feeForm, setFeeForm] = useState({
+    name: "",
+    amount: "",
+    dueDate: "",
+    notes: ""
+  });
 
   const teacherProfile = teacherUsers.find((teacher) => teacher.id === currentUser?.uid) || null;
   const handledSubjects = teacherProfile?.subjects || [];
+  const advisoryClass = teacherClassReports.find((classroom) => classroom.id === teacherProfile?.advisoryClassId)
+    || teacherClassReports[0]
+    || null;
   const getSubjectClassMap = (subjectName) => {
     const subjectKey = buildSubjectKey(subjectName);
 
@@ -254,22 +314,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
     return !mappedClassIds.length || mappedClassIds.includes(classroom.id);
   });
-  const sectionClassReports = section === "attendance" ? attendanceVisibleClassReports : teacherClassReports;
-  const selectedClass = sectionClassReports.find((classroom) => classroom.id === selectedClassId) || sectionClassReports[0] || null;
-  const students = selectedClass?.students || [];
-  const studentRosterKey = students.map((student) => student.id).join("|");
-  const selectedAttendanceRecord = selectedClass
-    && selectedAttendanceSubjectName
-    ? getAttendanceRecord(selectedClass.id, attendanceDate, selectedAttendanceSubjectName)
-    : null;
   const isWeekendAttendanceDate = isWeekendDate(attendanceDate);
-  const effectiveIsNoClassDay = isNoClassDay;
-  const effectiveNoClassReason = effectiveIsNoClassDay
-    ? String(noClassReason || "").trim() || (isWeekendAttendanceDate ? "Weekend" : "")
-    : "";
-  const selectedSubjectAttendanceRecords = selectedClass && selectedAttendanceSubjectName
-    ? getClassAttendanceRecords(selectedClass.id, selectedAttendanceSubjectName)
-    : [];
   const getAttendanceRecordSummary = (record) => {
     if (record.status === "no-class") {
       return record.noClassReason ? `No class - ${record.noClassReason}` : "No class";
@@ -281,18 +326,75 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
     return `Present/Credited ${presentCount} | Absent ${absentCount}`;
   };
+  const sectionMeta = {
+    dashboard: "Teaching Dashboard",
+    overview: "Teaching Dashboard",
+    students: "Student Manager",
+    subjects: "Subjects",
+    attendance: "Attendance",
+    gradebook: "Gradebook",
+    fees: "Fee Manager",
+    reports: "Reports"
+  };
+  const isDashboardSection = section === "dashboard" || section === "overview";
+  const isClassScopedSection = section !== "subjects";
+  const selectedSubjectClassMap = getSubjectClassMap(selectedSubjectName);
+  const selectedSubjectClassIds = Object.keys(selectedSubjectClassMap).filter((classId) => selectedSubjectClassMap[classId]);
+  const selectedSubjectClasses = classReports.filter((classroom) => selectedSubjectClassIds.includes(classroom.id));
+  const gradebookVisibleClassReports = selectedSubjectName
+    ? selectedSubjectClasses
+    : teacherClassReports;
+  const sectionClassReports = section === "attendance"
+    ? attendanceVisibleClassReports
+    : section === "gradebook"
+      ? gradebookVisibleClassReports
+      : teacherClassReports;
+  const selectedClass = sectionClassReports.find((classroom) => classroom.id === selectedClassId) || sectionClassReports[0] || null;
+  const students = selectedClass?.students || [];
+  const studentRosterKey = students.map((student) => student.id).join("|");
+  const selectedAttendanceRecord = selectedClass
+    && selectedAttendanceSubjectName
+    ? getAttendanceRecord(selectedClass.id, attendanceDate, selectedAttendanceSubjectName)
+    : null;
+  const effectiveIsNoClassDay = isNoClassDay;
+  const effectiveNoClassReason = effectiveIsNoClassDay
+    ? String(noClassReason || "").trim() || (isWeekendAttendanceDate ? "Weekend" : "")
+    : "";
+  const selectedSubjectAttendanceRecords = selectedClass && selectedAttendanceSubjectName
+    ? getClassAttendanceRecords(selectedClass.id, selectedAttendanceSubjectName)
+    : [];
+  const sortedAttendanceReportRecords = [...selectedSubjectAttendanceRecords]
+    .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")));
+  const attendanceReportRows = students.map((student) => {
+    const summary = sortedAttendanceReportRecords.reduce((totals, record) => {
+      if (record.status === "no-class") {
+        return totals;
+      }
 
-  useEffect(() => {
-    if (!sectionClassReports.length) {
-      setSelectedClassId("");
-      return;
-    }
+      const status = record.records?.[student.id]?.status || "";
+      if (!status) {
+        return totals;
+      }
 
-    const hasSelectedClass = sectionClassReports.some((classroom) => classroom.id === selectedClassId);
-    if (!selectedClassId || !hasSelectedClass) {
-      setSelectedClassId(sectionClassReports[0].id);
-    }
-  }, [sectionClassReports, selectedClassId]);
+      const isPresent = ATTENDED_STATUSES.has(status);
+      const presentCount = totals.present + (isPresent ? 1 : 0);
+      const absentCount = totals.absent + (!isPresent ? 1 : 0);
+
+      return {
+        present: presentCount,
+        absent: absentCount,
+        total: presentCount + absentCount
+      };
+    }, { present: 0, absent: 0, total: 0 });
+
+    return {
+      id: student.id,
+      studentName: getStudentDisplayName(student),
+      present: summary.present,
+      absent: summary.absent,
+      total: summary.total
+    };
+  });
 
   useEffect(() => {
     if (section !== "attendance") return;
@@ -316,6 +418,54 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
     return () => window.clearTimeout(timeoutId);
   }, [saveMessage]);
+
+  useEffect(() => {
+    setShowAttendanceReport(false);
+  }, [selectedAttendanceSubjectName, selectedClassId]);
+
+  useEffect(() => {
+    const subjects = teacherProfile?.subjects?.length ? teacherProfile.subjects : [];
+    if (!subjects.length) {
+      setSelectedSubjectName("");
+      return;
+    }
+
+    if (!selectedSubjectName || !subjects.some((subject) => subject === selectedSubjectName)) {
+      setSelectedSubjectName(subjects[0]);
+    }
+  }, [teacherProfile?.subjects?.join("|"), selectedSubjectName]);
+
+  useEffect(() => {
+    if (section !== "subjects") return;
+
+    const requestedSubjectName = location.state?.selectedSubjectName;
+    if (!requestedSubjectName) return;
+    if (!handledSubjects.includes(requestedSubjectName)) return;
+    if (selectedSubjectName === requestedSubjectName) return;
+
+    setSelectedSubjectName(requestedSubjectName);
+    setSelectedSubjectClassId("");
+    setSubjectScoreDrafts({});
+  }, [handledSubjects, location.state, section, selectedSubjectName]);
+
+  useEffect(() => {
+    const firstSubcategory = ASSESSMENT_SUBCATEGORIES[assessmentCategory]?.[0]?.key || "";
+    if (firstSubcategory && !ASSESSMENT_SUBCATEGORIES[assessmentCategory].some((subcategory) => subcategory.key === assessmentSubcategory)) {
+      setAssessmentSubcategory(firstSubcategory);
+    }
+  }, [assessmentCategory, assessmentSubcategory]);
+
+  useEffect(() => {
+    if (!sectionClassReports.length) {
+      setSelectedClassId("");
+      return;
+    }
+
+    const hasSelectedClass = sectionClassReports.some((classroom) => classroom.id === selectedClassId);
+    if (!selectedClassId || !hasSelectedClass) {
+      setSelectedClassId(sectionClassReports[0].id);
+    }
+  }, [sectionClassReports, selectedClassId]);
 
   useEffect(() => {
     const hasStoredRecord = Boolean(selectedAttendanceRecord);
@@ -343,26 +493,51 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       return nextDrafts;
     });
   }, [attendanceDate, selectedClassId, selectedAttendanceSubjectName, selectedAttendanceRecord, studentRosterKey, isWeekendAttendanceDate]);
+  const classTeacherName = selectedClass?.teacherName
+    || selectedClass?.adviserName
+    || userData?.displayName
+    || userData?.email
+    || currentUser?.email
+    || "Assigned Teacher";
+  const advisoryFees = Object.entries(advisoryClass?.fees || {})
+    .map(([id, fee]) => {
+      const payments = fee?.payments || {};
+      const paidCount = students.filter((student) => payments?.[student.id]?.paid).length;
 
-  useEffect(() => {
-    const subjects = teacherProfile?.subjects?.length ? teacherProfile.subjects : [];
-    if (!subjects.length) {
-      setSelectedSubjectName("");
-      return;
-    }
+      return {
+        id,
+        ...fee,
+        paidCount,
+        totalStudents: students.length
+      };
+    })
+    .sort((left, right) => (
+      String(left.dueDate || "").localeCompare(String(right.dueDate || ""))
+      || String(left.name || "").localeCompare(String(right.name || ""))
+    ));
+  const currentActiveStudentFeeTarget = activeStudentFeeTarget
+    ? students.find((student) => student.id === activeStudentFeeTarget.id) || activeStudentFeeTarget
+    : null;
+  const studentFeeRows = students.map((student) => {
+    const paidCount = advisoryFees.filter((fee) => fee?.payments?.[student.id]?.paid).length;
+    const totalFees = advisoryFees.length;
 
-    if (!selectedSubjectName || !subjects.some((subject) => subject === selectedSubjectName)) {
-      setSelectedSubjectName(subjects[0]);
-    }
-  }, [teacherProfile?.subjects?.join("|"), selectedSubjectName]);
+    return {
+      ...student,
+      paidCount,
+      unpaidCount: Math.max(0, totalFees - paidCount),
+      totalFees
+    };
+  });
+  const existingStudentOptions = allStudents
+    .filter((student) => {
+      if (!student.id || student.classId === selectedClass?.id) return false;
+      if (student.classId) return false;
+      if (selectedClass?.gradeLevel && student.gradeLevel && student.gradeLevel !== selectedClass.gradeLevel) return false;
 
-  useEffect(() => {
-    const firstSubcategory = ASSESSMENT_SUBCATEGORIES[assessmentCategory]?.[0]?.key || "";
-    if (firstSubcategory && !ASSESSMENT_SUBCATEGORIES[assessmentCategory].some((subcategory) => subcategory.key === assessmentSubcategory)) {
-      setAssessmentSubcategory(firstSubcategory);
-    }
-  }, [assessmentCategory, assessmentSubcategory]);
-
+      return true;
+    })
+    .sort((left, right) => getStudentDisplayName(left).localeCompare(getStudentDisplayName(right)));
   const studentsNeedingSupport = students.filter((student) => student.performanceStatus === "Needs Support");
   const topPerformer = [...students]
     .filter((student) => Number.isFinite(student.gpa))
@@ -376,40 +551,11 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     { label: "On Track", count: students.filter((student) => Number.isFinite(student.gpa) && student.gpa >= 80 && student.gpa < 90).length },
     { label: "Needs Support", count: students.filter((student) => !Number.isFinite(student.gpa) || student.gpa < 80).length }
   ];
-  const sectionMeta = {
-    dashboard: "Teaching Dashboard",
-    overview: "Teaching Dashboard",
-    students: "Student Manager",
-    subjects: "Subjects",
-    attendance: "Attendance",
-    gradebook: "Gradebook",
-    reports: "Reports"
-  };
-  const isDashboardSection = section === "dashboard" || section === "overview";
-  const isClassScopedSection = section !== "subjects";
-  const classTeacherName = selectedClass?.teacherName
-    || selectedClass?.adviserName
-    || userData?.displayName
-    || userData?.email
-    || currentUser?.email
-    || "Assigned Teacher";
-  const existingStudentOptions = allStudents
-    .filter((student) => {
-      if (!student.id || student.classId === selectedClass?.id) return false;
-      if (student.classId) return false;
-      if (selectedClass?.gradeLevel && student.gradeLevel && student.gradeLevel !== selectedClass.gradeLevel) return false;
-
-      return true;
-    })
-    .sort((left, right) => String(left.name).localeCompare(String(right.name)));
-  const selectedSubjectClassMap = getSubjectClassMap(selectedSubjectName);
-  const selectedSubjectClassIds = Object.keys(selectedSubjectClassMap).filter((classId) => selectedSubjectClassMap[classId]);
-  const selectedSubjectClasses = classReports.filter((classroom) => selectedSubjectClassIds.includes(classroom.id));
   const subjectStudents = allStudents
     .filter((student) => student.id && student.classId && selectedSubjectClassIds.includes(student.classId))
     .sort((left, right) => (
       String(left.className).localeCompare(String(right.className))
-      || String(left.name).localeCompare(String(right.name))
+      || getStudentDisplayName(left).localeCompare(getStudentDisplayName(right))
     ));
   const visibleSubjectStudents = selectedSubjectClassId
     ? subjectStudents.filter((student) => student.classId === selectedSubjectClassId)
@@ -419,12 +565,77 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     groups[groupName] = [...(groups[groupName] || []), student];
     return groups;
   }, {});
-
+  const currentCalendarDate = new Date();
+  const currentCalendarMonthLabel = currentCalendarDate.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric"
+  });
+  const todayDayNumber = currentCalendarDate.getDate();
+  const todayMonthIndex = currentCalendarDate.getMonth();
+  const todayYear = currentCalendarDate.getFullYear();
+  const firstCalendarDate = new Date(todayYear, todayMonthIndex, 1);
+  const firstCalendarWeekday = firstCalendarDate.getDay();
+  const daysInCalendarMonth = new Date(todayYear, todayMonthIndex + 1, 0).getDate();
+  const calendarDayCells = [
+    ...Array.from({ length: firstCalendarWeekday }, (_, index) => ({
+      key: `blank-${index}`,
+      label: "",
+      isCurrentMonth: false,
+      isToday: false
+    })),
+    ...Array.from({ length: daysInCalendarMonth }, (_, index) => {
+      const dayNumber = index + 1;
+      return {
+        key: `day-${dayNumber}`,
+        label: dayNumber,
+        isCurrentMonth: true,
+        isToday: dayNumber === todayDayNumber
+      };
+    })
+  ];
   const getStudentSubjectRecord = (student, subjectName) => {
     return student.subjects.find((subject) => (
       String(subject.name || "").trim().toLowerCase() === String(subjectName || "").trim().toLowerCase()
     )) || null;
   };
+  const handledSubjectSummaries = handledSubjects.map((subjectName, index) => {
+    const classMap = getSubjectClassMap(subjectName);
+    const classIds = Object.keys(classMap).filter((classId) => classMap[classId]);
+    const subjectStudentsForSummary = allStudents.filter((student) => (
+      student.id && student.classId && classIds.includes(student.classId)
+    ));
+    const subjectStudentCount = subjectStudentsForSummary.length;
+    const averageSubjectGradeValues = subjectStudentsForSummary
+      .map((student) => getStudentSubjectRecord(student, subjectName)?.finalGrade)
+      .filter((grade) => Number.isFinite(grade));
+    const averageSubjectGrade = averageSubjectGradeValues.length
+      ? Number((averageSubjectGradeValues.reduce((sum, value) => sum + value, 0) / averageSubjectGradeValues.length).toFixed(1))
+      : null;
+
+    return {
+      subjectName,
+      studentCount: subjectStudentCount,
+      sectionCount: classIds.length,
+      averageGrade: averageSubjectGrade,
+      color: SUBJECT_PIE_COLORS[index % SUBJECT_PIE_COLORS.length]
+    };
+  });
+  const totalHandledSubjectStudents = handledSubjectSummaries.reduce((sum, item) => sum + item.studentCount, 0);
+  let handledSubjectPieOffset = 0;
+  const handledSubjectPieSegments = handledSubjectSummaries
+    .filter((item) => item.studentCount > 0)
+    .map((item) => {
+      const fraction = item.studentCount / totalHandledSubjectStudents;
+      const dashLength = fraction * 100;
+      const segment = {
+        ...item,
+        dashArray: `${dashLength} ${100 - dashLength}`,
+        dashOffset: -handledSubjectPieOffset
+      };
+
+      handledSubjectPieOffset += dashLength;
+      return segment;
+    });
   const getQuarterScores = (subject, quarterKey) => {
     const quarter = subject?.quarters?.[quarterKey] || {};
 
@@ -510,6 +721,27 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     setSaveMessage("");
   };
 
+  const openFeeModal = () => {
+    setFeeForm({
+      name: "",
+      amount: "",
+      dueDate: "",
+      notes: ""
+    });
+    setShowFeeModal(true);
+    setSaveMessage("");
+  };
+
+  const openFeeListModal = () => {
+    setShowFeeListModal(true);
+    setSaveMessage("");
+  };
+
+  const openStudentFeeModal = (student) => {
+    setActiveStudentFeeTarget(student);
+    setSaveMessage("");
+  };
+
   useEffect(() => {
     const availableClassIds = selectedSubjectClasses.map((classroom) => classroom.id);
 
@@ -524,23 +756,56 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   }, [selectedSubjectClassId, selectedSubjectClasses]);
 
   useEffect(() => {
+    if (section !== "students") return;
+    if (!advisoryClass?.id) return;
+    if (selectedClassId === advisoryClass.id) return;
+
+    setSelectedClassId(advisoryClass.id);
+  }, [advisoryClass?.id, section, selectedClassId]);
+
+  useEffect(() => {
     if (loading || error) {
       setHeaderActions(null);
       return () => setHeaderActions(null);
     }
 
-    if (section === "subjects") {
+    if (section === "students" && teacherClassReports.length > 0) {
+      setHeaderActions(
+        <button type="button" className="primary-btn" onClick={openAddStudentModal}>
+          Add Student
+        </button>
+      );
+    } else if (section === "subjects") {
       setHeaderActions(
         <button type="button" className="primary-btn" onClick={openSubjectModal}>
           Add Subject
         </button>
+      );
+    } else if (section === "fees" && advisoryClass?.id) {
+      setHeaderActions(
+        <>
+          <button type="button" className="secondary-btn" onClick={openFeeListModal}>
+            View Fees
+          </button>
+          <button type="button" className="primary-btn" onClick={openFeeModal}>
+            Add Fee
+          </button>
+        </>
       );
     } else {
       setHeaderActions(null);
     }
 
     return () => setHeaderActions(null);
-  }, [error, loading, section, setHeaderActions, teacherProfile?.subjects?.join("|")]);
+  }, [
+    error,
+    loading,
+    section,
+    setHeaderActions,
+    advisoryClass?.id,
+    teacherClassReports,
+    teacherProfile?.subjects?.join("|")
+  ]);
 
   const handleSubjectFormClassToggle = (classId) => {
     setSubjectForm((currentForm) => ({
@@ -749,6 +1014,71 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     setShowAssessmentModal(false);
   };
 
+  const handleRemoveAssessmentColumn = (categoryKey, subcategoryKey, scoreIndex, quarterKey = selectedScoreQuarter) => {
+    if (!subjectStudents.length) return;
+
+    setSubjectScoreDrafts((currentDrafts) => subjectStudents.reduce((drafts, student) => {
+      const currentDraft = currentDrafts[student.id] || getSubjectScoreDraft(student);
+      const currentQuarters = currentDraft.quarters || createDefaultQuarterScores();
+      const currentQuarter = {
+        ...createEmptyQuarterScores(),
+        ...(currentQuarters[quarterKey] || {})
+      };
+      const currentCategory = {
+        ...(createEmptyQuarterScores()[categoryKey] || {}),
+        ...(currentQuarter[categoryKey] || {})
+      };
+      const currentValues = normalizeScoreArray(currentCategory[subcategoryKey]);
+
+      if (scoreIndex < 0 || scoreIndex >= currentValues.length) {
+        return {
+          ...drafts,
+          [student.id]: currentDraft
+        };
+      }
+
+      const nextValues = currentValues.filter((_, index) => index !== scoreIndex);
+      const nextQuarter = {
+        ...currentQuarter,
+        [categoryKey]: {
+          ...currentCategory,
+          [subcategoryKey]: nextValues
+        }
+      };
+      const nextQuarters = {
+        ...currentQuarters,
+        [quarterKey]: nextQuarter
+      };
+      const nextQuarterGrades = QUARTER_OPTIONS.reduce((grades, quarter) => ({
+        ...grades,
+        [quarter.key]: calculateQuarterGrade(nextQuarters[quarter.key], gradeWeights) ?? ""
+      }), {});
+
+      return {
+        ...drafts,
+        [student.id]: {
+          ...currentDraft,
+          ...nextQuarterGrades,
+          quarters: nextQuarters
+        }
+      };
+    }, currentDrafts));
+  };
+
+  const requestRemoveAssessmentColumn = (column) => {
+    const quarterLabel = QUARTER_OPTIONS.find((quarter) => quarter.key === selectedScoreQuarter)?.label || "Selected quarter";
+
+    setConfirmState({
+      action: "delete-assessment-column",
+      tone: "danger",
+      title: `Delete ${column.shortLabel}?`,
+      message: `This will remove ${column.shortLabel} from ${quarterLabel} for all students in this subject.`,
+      confirmLabel: "Delete Assessment",
+      cancelLabel: "Keep Assessment",
+      column
+    });
+  };
+
   const deleteSubject = async (subjectName) => {
     try {
       const nextSubjects = handledSubjects.filter((subject) => subject.toLowerCase() !== subjectName.toLowerCase());
@@ -783,6 +1113,40 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     });
   };
 
+  const requestDeleteFee = (fee) => {
+    setConfirmState({
+      action: "delete-fee",
+      tone: "danger",
+      title: `Delete ${fee.name}?`,
+      message: "This will remove the fee from your advisory class.",
+      confirmLabel: "Delete Fee",
+      cancelLabel: "Keep Fee",
+      fee
+    });
+  };
+
+  const handleToggleFeePayment = async (fee, student) => {
+    const paymentRecord = fee?.payments?.[student.id];
+    const nextPaid = !paymentRecord?.paid;
+    const paymentKey = `${fee.id}-${student.id}`;
+
+    setSavingFeePaymentKey(paymentKey);
+
+    try {
+      await saveClassFeePayment({
+        classId: advisoryClass?.id,
+        feeId: fee.id,
+        studentId: student.id,
+        paid: nextPaid
+      });
+      setSaveMessage(`${getStudentDisplayName(student)} marked as ${nextPaid ? "paid" : "unpaid"} for ${fee.name}.`);
+    } catch (saveError) {
+      setSaveMessage(saveError?.message || "Fee payment could not be updated.");
+    } finally {
+      setSavingFeePaymentKey("");
+    }
+  };
+
   const handleConfirmDecision = async () => {
     const decision = confirmState;
     if (!decision) return;
@@ -790,7 +1154,74 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     if (decision.action === "delete-subject") {
       await deleteSubject(decision.subjectName);
       setConfirmState(null);
+      return;
     }
+
+    if (decision.action === "delete-fee") {
+      try {
+        await deleteClassFee({
+          classId: advisoryClass?.id,
+          feeId: decision.fee.id
+        });
+        setSaveMessage(`${decision.fee.name} deleted.`);
+      } catch (saveError) {
+        setSaveMessage(saveError?.message || "Fee could not be deleted.");
+      }
+      setConfirmState(null);
+      return;
+    }
+
+    if (decision.action === "delete-assessment-column") {
+      handleRemoveAssessmentColumn(
+        decision.column.categoryKey,
+        decision.column.subcategoryKey,
+        decision.column.index,
+        selectedScoreQuarter
+      );
+      setConfirmState(null);
+    }
+  };
+
+  const handleSaveFee = async (event) => {
+    event.preventDefault();
+
+    if (!advisoryClass?.id) {
+      setSaveMessage("Assign an advisory class before adding fees.");
+      return;
+    }
+
+    setIsSavingFee(true);
+
+    try {
+      await saveClassFee({
+        classId: advisoryClass.id,
+        payload: feeForm
+      });
+      setShowFeeModal(false);
+      setFeeForm({
+        name: "",
+        amount: "",
+        dueDate: "",
+        notes: ""
+      });
+      setSaveMessage("Fee added.");
+    } catch (saveError) {
+      setSaveMessage(saveError?.message || "Fee could not be saved.");
+    } finally {
+      setIsSavingFee(false);
+    }
+  };
+
+  const openQuarterBreakdownModal = (student, subjectRecord, quarter) => {
+    const quarterScores = getQuarterScores(subjectRecord, quarter.key);
+
+    setQuarterBreakdownModal({
+      studentName: getStudentDisplayName(student),
+      subjectName: selectedSubjectName,
+      quarterLabel: quarter.label,
+      quarterGrade: subjectRecord?.[quarter.key] ?? "N/A",
+      quarterScores
+    });
   };
 
   const getAssessmentColumns = (quarterKey) => ASSESSMENT_CATEGORIES.flatMap((category) => (
@@ -959,25 +1390,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       <div>
         <h3>{sectionMeta[section] || "Teaching Dashboard"}</h3>
       </div>
-      <div className="toolbar-actions">
-        {isClassScopedSection && sectionClassReports.length > 0 && (
-          <label className="selector-field">
-            <span>Section</span>
-            <select value={selectedClass?.id || ""} onChange={(event) => setSelectedClassId(event.target.value)}>
-              {sectionClassReports.map((classroom) => (
-                <option key={classroom.id} value={classroom.id}>
-                  {classroom.name || classroom.section || classroom.id}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {teacherClassReports.length > 0 && section === "students" && (
-          <button type="button" className="secondary-btn" onClick={openAddStudentModal}>
-            Add Student
-          </button>
-        )}
-      </div>
     </div>
   );
 
@@ -985,13 +1397,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     <>
       {handledSubjects.length > 0 ? (
         <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h3>Subject Score Workspace</h3>
-              <p className="muted-text">Choose a subject and section, then update scores in one place.</p>
-            </div>
-          </div>
-
           <div className="subject-workspace-shell">
             <div className="subject-filter-row">
               <label className="selector-field">
@@ -1086,7 +1491,18 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                       <th>Student</th>
                       {getAssessmentColumns(selectedScoreQuarter).map((column) => (
                         <th key={`${column.categoryKey}-${column.subcategoryKey}-${column.index}`}>
-                          {column.shortLabel}
+                          <div className="assessment-column-header">
+                            <span>{column.shortLabel}</span>
+                            <button
+                              type="button"
+                              className="assessment-delete-btn"
+                              aria-label={`Delete ${column.shortLabel}`}
+                              title={`Delete ${column.shortLabel}`}
+                              onClick={() => requestRemoveAssessmentColumn(column)}
+                            >
+                              ×
+                            </button>
+                          </div>
                         </th>
                       ))}
                       <th>Final</th>
@@ -1106,7 +1522,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                       return (
                         <tr key={student.id}>
                           <td data-label="Student" className="student-score-cell">
-                            <strong>{student.name}</strong>
+                            <strong>{getStudentDisplayName(student)}</strong>
                             <p className="muted-text">{student.studentNumber || "No ID"}</p>
                           </td>
                           {getAssessmentColumns(selectedScoreQuarter).map((column) => {
@@ -1184,7 +1600,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                 >
                   {existingStudentOptions.map((student) => (
                     <option key={student.id} value={student.id}>
-                      {student.name} {student.studentNumber ? `(${student.studentNumber})` : ""}
+                      {getStudentDisplayName(student)} {student.studentNumber ? `(${student.studentNumber})` : ""}
                     </option>
                   ))}
                 </select>
@@ -1214,7 +1630,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       {error && <div className="error-container">{error}</div>}
       {saveMessage && <div className="feedback-toast success-banner">{saveMessage}</div>}
 
-      {section !== "subjects" && section !== "attendance" && renderClassSelector()}
+      {section !== "subjects" && section !== "attendance" && section !== "students" && section !== "gradebook" && section !== "fees" && !isDashboardSection && renderClassSelector()}
 
       {section !== "attendance" && isClassScopedSection && !sectionClassReports.length && (
         <div className="empty-state">
@@ -1230,72 +1646,130 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
       {isDashboardSection && (
         <div className="stats-grid">
-          <div className="stat-card">
-            <h4>Assigned Sections</h4>
-            <p>{teacherClassReports.length}</p>
-          </div>
-          <div className="stat-card">
-            <h4>Section Average</h4>
-            <p>{selectedClass?.averageGpa ?? "N/A"}</p>
-          </div>
-          <div className="stat-card">
+          <button
+            type="button"
+            className="stat-card stat-card-button"
+            onClick={() => navigate("/dashboard/students")}
+          >
+            <h4>Advisory Class</h4>
+            <p>{advisoryClass?.section || advisoryClass?.name || "N/A"}</p>
+            <span className="stat-card-note">
+              {advisoryClass?.gradeLevel || "No advisory class assigned"}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="stat-card stat-card-button"
+            onClick={() => navigate("/dashboard/attendance")}
+          >
             <h4>Attendance Average</h4>
             <p>{Number.isFinite(selectedClass?.averageAttendance) ? `${selectedClass.averageAttendance}%` : "N/A"}</p>
-          </div>
-          <div className="stat-card">
+          </button>
+          <button
+            type="button"
+            className="stat-card stat-card-button"
+            onClick={() => navigate("/dashboard/students")}
+          >
             <h4>Students in Section</h4>
             <p>{students.length}</p>
-          </div>
+          </button>
         </div>
       )}
 
       {isDashboardSection && (
         <>
-          <div className="insight-grid">
-            <div className="panel">
-              <div className="panel-header">
-                <h3>{selectedClass?.name || selectedClass?.section || "Selected Section"}</h3>
+          <div className="dashboard-overview-grid">
+            <div className="dashboard-main-column">
+              <div className="panel">
+                <div className="panel-header">
+                  <h3>Subject Students</h3>
+                  <span className="meta-badge">{totalHandledSubjectStudents} total</span>
+                </div>
+                {handledSubjectPieSegments.length ? (
+                  <div className="subject-pie-panel">
+                    <div className="subject-pie-chart-wrap" aria-hidden="true">
+                      <svg viewBox="0 0 42 42" className="subject-pie-chart">
+                        <circle className="subject-pie-track" cx="21" cy="21" r="15.9155" />
+                        {handledSubjectPieSegments.map((segment) => (
+                          <circle
+                            key={segment.subjectName}
+                            className="subject-pie-segment"
+                            cx="21"
+                            cy="21"
+                            r="15.9155"
+                            stroke={segment.color}
+                            strokeDasharray={segment.dashArray}
+                            strokeDashoffset={segment.dashOffset}
+                          />
+                        ))}
+                      </svg>
+                    </div>
+                    <ul className="subject-pie-legend">
+                      {handledSubjectSummaries.map((item) => (
+                        <li key={item.subjectName} className="subject-pie-legend-item">
+                          <span className="subject-pie-swatch" style={{ backgroundColor: item.color }} />
+                          <div>
+                            <strong>{item.subjectName}</strong>
+                            <p>{item.studentCount} student{item.studentCount === 1 ? "" : "s"}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="empty-copy">Assign sections to your subjects to see student distribution.</p>
+                )}
               </div>
-              <div className="report-strip">
-                <div>
-                  <span>Students</span>
-                  <strong>{students.length}</strong>
+
+              <div className="panel handled-subject-list-panel">
+                <div className="panel-header">
+                  <h3>Handled Subjects</h3>
                 </div>
-                <div>
-                  <span>Completion</span>
-                  <strong>{selectedClass?.completionRate ?? 0}%</strong>
-                </div>
-                <div>
-                  <span>Excellence</span>
-                  <strong>{selectedClass?.excellentCount ?? 0}</strong>
-                </div>
+                {handledSubjectSummaries.length ? (
+                  <div className="handled-subject-list">
+                    {handledSubjectSummaries.map((item) => (
+                      <button
+                        key={item.subjectName}
+                        type="button"
+                        className="handled-subject-item"
+                        onClick={() => navigate("/dashboard/subjects", { state: { selectedSubjectName: item.subjectName } })}
+                      >
+                        <span className="handled-subject-accent" style={{ backgroundColor: item.color }} />
+                        <div className="handled-subject-copy">
+                          <strong>{item.subjectName}</strong>
+                          <p>{item.studentCount} students | {item.sectionCount} sections</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">No handled subjects assigned yet.</p>
+                )}
               </div>
-              <p className="mt-4">
-                {topPerformer
-                  ? `${topPerformer.name} is leading this section with a ${topPerformer.gpa} average.`
-                  : "Add students to start building this section roster."}
-              </p>
             </div>
 
-            <div className="panel">
-              <h3>Support Watchlist</h3>
-              {studentsNeedingSupport.length ? (
-                <ul className="stack-list">
-                  {studentsNeedingSupport.slice(0, 4).map((student) => (
-                    <li key={student.id} className="list-row">
-                      <div>
-                        <strong>{student.name}</strong>
-                        <p>{student.alerts[0] || "Monitor learner progress."}</p>
-                      </div>
-                      <button type="button" className="secondary-btn" onClick={() => openStudentModal(student)}>
-                        Edit
-                      </button>
-                    </li>
+            <div className="dashboard-side-stack">
+              <div className="panel calendar-panel">
+                <div className="panel-header">
+                  <h3>Calendar</h3>
+                  <span className="meta-badge">{currentCalendarMonthLabel}</span>
+                </div>
+                <div className="calendar-grid calendar-grid-head">
+                  {CALENDAR_WEEKDAY_LABELS.map((day) => (
+                    <span key={day} className="calendar-weekday">{day}</span>
                   ))}
-                </ul>
-              ) : (
-                <p className="empty-copy">No current alerts.</p>
-              )}
+                </div>
+                <div className="calendar-grid calendar-grid-body">
+                  {calendarDayCells.map((cell) => (
+                    <span
+                      key={cell.key}
+                      className={`calendar-day${cell.isCurrentMonth ? "" : " muted"}${cell.isToday ? " today" : ""}`}
+                    >
+                      {cell.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1303,88 +1777,186 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       )}
 
       {section === "students" && (
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Section Roster</h3>
-            <button type="button" className="primary-btn" onClick={openAddStudentModal}>
-              Add Student
-            </button>
+        <>
+          <div className="panel hero-panel">
+            <div className="panel-header">
+              <div>
+                <h3>{advisoryClass?.gradeLevel || "Grade"} - {advisoryClass?.section || advisoryClass?.name || "Advisory Class"}</h3>
+                <p className="muted-text">Advisory Class</p>
+              </div>
+            </div>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Average</th>
-                <th>Attendance</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((student) => (
-                <tr key={student.id}>
-                  <td data-label="Name">{student.name}</td>
-                  <td data-label="Average">{student.gpa ?? "N/A"}</td>
-                  <td data-label="Attendance">{student.attendanceLabel}</td>
-                  <td data-label="Status"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
-                  <td data-label="Action">
-                    <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {students.length === 0 && (
+
+          <div className="panel">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <td colSpan="5">No students found for this section.</td>
+                  <th>Name</th>
+                  <th>Student Number</th>
+                  <th>Email</th>
+                  <th>Attendance</th>
+                  <th>Status</th>
+                  <th>Action</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {students.map((student) => (
+                  <tr key={student.id}>
+                    <td data-label="Name">{getStudentDisplayName(student)}</td>
+                    <td data-label="Student Number">{student.studentNumber || "N/A"}</td>
+                    <td data-label="Email">{student.email || "N/A"}</td>
+                    <td data-label="Attendance">{student.attendanceLabel}</td>
+                    <td data-label="Status"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
+                    <td data-label="Action">
+                      <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {students.length === 0 && (
+                  <tr>
+                    <td colSpan="6">No students found for this section.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {section === "gradebook" && (
         <div className="panel">
           <div className="panel-header">
-            <h3>Section Gradebook</h3>
+            <h3>{selectedSubjectName ? `${selectedSubjectName} Gradebook` : "Section Gradebook"}</h3>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Quarter 1</th>
-                <th>Quarter 2</th>
-                <th>Quarter 3</th>
-                <th>Quarter 4</th>
-                <th>Attendance</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((student) => (
-                <tr key={student.id}>
-                  <td data-label="Name">{student.name}</td>
-                  <td data-label="Quarter 1">{student.q1Average ?? "N/A"}</td>
-                  <td data-label="Quarter 2">{student.q2Average ?? "N/A"}</td>
-                  <td data-label="Quarter 3">{student.q3Average ?? "N/A"}</td>
-                  <td data-label="Quarter 4">{student.q4Average ?? "N/A"}</td>
-                  <td data-label="Attendance">{student.attendanceLabel}</td>
-                  <td data-label="Action">
-                    <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
-                      {savingStudentId === student.id ? "Saving..." : "Edit"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {students.length === 0 && (
-                <tr>
-                  <td colSpan="7">No students found for this section.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          {handledSubjects.length ? (
+            <>
+              <div className="table-filter-bar">
+                <label className="selector-field gradebook-subject-field">
+                  <span>Subject</span>
+                  <select
+                    value={selectedSubjectName}
+                    onChange={(event) => setSelectedSubjectName(event.target.value)}
+                  >
+                    {handledSubjects.map((subject) => (
+                      <option key={subject} value={subject}>
+                        {subject}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Quarter 1</th>
+                    <th>Quarter 2</th>
+                    <th>Quarter 3</th>
+                    <th>Quarter 4</th>
+                    <th>Attendance</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => {
+                    const subjectRecord = getStudentSubjectRecord(student, selectedSubjectName);
+
+                    return (
+                      <tr key={student.id}>
+                        <td data-label="Name">{getStudentDisplayName(student)}</td>
+                        {QUARTER_OPTIONS.map((quarter) => (
+                          <td key={quarter.key} data-label={quarter.label}>
+                            {subjectRecord ? (
+                              <button
+                                type="button"
+                                className="quarter-grade-trigger"
+                                onClick={() => openQuarterBreakdownModal(student, subjectRecord, quarter)}
+                              >
+                                {subjectRecord?.[quarter.key] ?? "N/A"}
+                              </button>
+                            ) : (
+                              "N/A"
+                            )}
+                          </td>
+                        ))}
+                        <td data-label="Attendance">{subjectRecord?.attendanceLabel || student.attendanceLabel || "N/A"}</td>
+                        <td data-label="Action">
+                          <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
+                            {savingStudentId === student.id ? "Saving..." : "Edit"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {students.length === 0 && (
+                    <tr>
+                      <td colSpan="7">No students found for this subject section.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </>
+          ) : (
+            <p className="empty-copy">No handled subjects available yet.</p>
+          )}
         </div>
+      )}
+
+      {section === "fees" && (
+        <>
+          <div className="panel hero-panel">
+            <div className="panel-header">
+              <div>
+                <h3>{advisoryClass?.section || advisoryClass?.name || "Advisory Class"}</h3>
+                <p className="muted-text">{advisoryClass?.gradeLevel || "No advisory class assigned"}</p>
+              </div>
+              <span className="meta-badge">{advisoryFees.length} fee{advisoryFees.length === 1 ? "" : "s"}</span>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <h3>Student Fee Status</h3>
+            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Student Number</th>
+                  <th>Paid Fees</th>
+                  <th>Unpaid Fees</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {studentFeeRows.map((student) => (
+                  <tr key={student.id}>
+                    <td data-label="Student">{getStudentDisplayName(student)}</td>
+                    <td data-label="Student Number">{student.studentNumber || "N/A"}</td>
+                    <td data-label="Paid Fees">{student.paidCount}/{student.totalFees}</td>
+                    <td data-label="Unpaid Fees">{student.unpaidCount}</td>
+                    <td data-label="Action">
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        onClick={() => openStudentFeeModal(student)}
+                      >
+                        Pay Fee
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!studentFeeRows.length && (
+                  <tr>
+                    <td colSpan="5">No students found in this advisory class yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {section === "attendance" && (
@@ -1403,7 +1975,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
               <div className="attendance-workspace-shell">
               <div className="attendance-sheet-toolbar">
-                <label className="selector-field">
+                <label className="selector-field attendance-toolbar-field">
                   <span>Subject</span>
                   <select
                     value={selectedAttendanceSubjectName}
@@ -1416,7 +1988,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     ))}
                   </select>
                 </label>
-                <label className="selector-field">
+                <label className="selector-field attendance-toolbar-field">
                   <span>Section</span>
                   <select
                     value={selectedClass?.id || ""}
@@ -1430,7 +2002,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     ))}
                   </select>
                 </label>
-                <label className="selector-field">
+                <label className="selector-field attendance-toolbar-field attendance-toolbar-date">
                   <span>Date</span>
                   <input
                     type="date"
@@ -1441,12 +2013,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
               </div>
 
               <div className="attendance-day-panel">
-                <div className="attendance-day-status">
-                  <span className={`status-pill ${effectiveIsNoClassDay ? "no-class" : "info"}`}>
-                    {effectiveIsNoClassDay ? "No Class" : "Class Day"}
-                  </span>
-                </div>
-
                 <div className="attendance-sheet-toolbar">
                   <label className="attendance-toggle">
                     <input
@@ -1457,7 +2023,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     <span>Mark as No Class</span>
                   </label>
                   {effectiveIsNoClassDay && (
-                    <label className="selector-field">
+                    <label className="selector-field attendance-toolbar-field">
                       <span>Reason</span>
                       <input
                         type="text"
@@ -1468,8 +2034,17 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     </label>
                   )}
                 </div>
-                {isWeekendAttendanceDate && (
-                  <p className="muted-text">Saturday and Sunday default to no class, but you can still mark them as class days when needed.</p>
+
+                {attendanceVisibleClassReports.length > 0 && (
+                  <div className="attendance-action-row">
+                    <button
+                      type="button"
+                      className="secondary-btn attendance-save-btn"
+                      onClick={() => setShowAttendanceReport(true)}
+                    >
+                      View Report
+                    </button>
+                  </div>
                 )}
 
               </div>
@@ -1491,7 +2066,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                             <tr key={student.id}>
                               <td data-label="No.">{index + 1}</td>
                               <td data-label="Student Name" className="monthly-student-name">
-                                <strong>{student.name}</strong>
+                                <strong>{getStudentDisplayName(student)}</strong>
                               </td>
                               <td data-label="Status">
                                 <select
@@ -1518,22 +2093,12 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     </div>
                   )}
 
-                  {effectiveIsNoClassDay && (
-                    <p className="empty-copy">This date is marked as no class. Save the selected day to apply it to this subject section.</p>
-                  )}
-
-                  <div className="attendance-sheet-summary attendance-legend-list">
-                    {ATTENDANCE_STATUS_OPTIONS.map((option) => (
-                      <span key={option.value} className="attendance-legend-item"><strong>{option.code}</strong> {option.label}</span>
-                    ))}
-                  </div>
-
                   <button
                     type="button"
                     className="primary-btn attendance-save-btn"
                     onClick={handleSaveDailyAttendance}
                   >
-                    Save Selected Day
+                    Save
                   </button>
                 </>
               ) : (
@@ -1551,6 +2116,53 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
           )}
 
         </>
+      )}
+
+      {showAttendanceReport && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <div>
+                <h3>Attendance Report</h3>
+                <p className="muted-text">
+                  {selectedAttendanceSubjectName || "Subject"}{selectedClass ? ` - ${selectedClass.name || selectedClass.section || "Section"}` : ""}
+                </p>
+              </div>
+              <span className="meta-badge">{attendanceReportRows.length} student{attendanceReportRows.length === 1 ? "" : "s"}</span>
+            </div>
+
+            {attendanceReportRows.length ? (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Present</th>
+                    <th>Absents</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendanceReportRows.map((row) => (
+                    <tr key={row.id}>
+                      <td data-label="Student">{row.studentName}</td>
+                      <td data-label="Present">{row.present}</td>
+                      <td data-label="Absents">{row.absent}</td>
+                      <td data-label="Total">{row.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="empty-copy">No attendance records saved yet for this subject section.</p>
+            )}
+
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setShowAttendanceReport(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {section === "reports" && (
@@ -1584,7 +2196,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                   {recentUpdates.map((student) => (
                     <li key={student.id} className="list-row">
                       <div>
-                        <strong>{student.name}</strong>
+                        <strong>{getStudentDisplayName(student)}</strong>
                         <p>{student.recentActivity[0]?.result || `Updated ${student.updatedLabel}`}</p>
                       </div>
                       <span>{student.updatedLabel}</span>
@@ -1612,7 +2224,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
               <tbody>
                 {students.map((student) => (
                   <tr key={student.id}>
-                    <td data-label="Student">{student.name}</td>
+                    <td data-label="Student">{getStudentDisplayName(student)}</td>
                     <td data-label="Overall Average">{student.gpa ?? "N/A"}</td>
                     <td data-label="Attendance">{student.attendanceLabel}</td>
                     <td data-label="Status"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
@@ -1626,6 +2238,246 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       )}
 
       {addingStudentToClass && renderAddExistingStudentModal()}
+
+      {showFeeListModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <div>
+                <h3>Fee List</h3>
+                <p className="muted-text">{advisoryClass?.section || advisoryClass?.name || "Advisory Class"}</p>
+              </div>
+              <span className="meta-badge">{advisoryFees.length} fee{advisoryFees.length === 1 ? "" : "s"}</span>
+            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Fee</th>
+                  <th>Amount</th>
+                  <th>Due Date</th>
+                  <th>Paid</th>
+                  <th>Notes</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {advisoryFees.map((fee) => (
+                  <tr key={fee.id}>
+                    <td data-label="Fee">{fee.name || "N/A"}</td>
+                    <td data-label="Amount">{formatCurrency(fee.amount)}</td>
+                    <td data-label="Due Date">{fee.dueDate ? formatDateLabel(fee.dueDate) : "N/A"}</td>
+                    <td data-label="Paid">{fee.paidCount}/{fee.totalStudents}</td>
+                    <td data-label="Notes">{fee.notes || "N/A"}</td>
+                    <td data-label="Action">
+                      <button
+                        type="button"
+                        className="secondary-btn danger-btn"
+                        onClick={() => requestDeleteFee(fee)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!advisoryFees.length && (
+                  <tr>
+                    <td colSpan="6">No fees added for this advisory class yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setShowFeeListModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {currentActiveStudentFeeTarget && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <div>
+                <h3>{getStudentDisplayName(currentActiveStudentFeeTarget)} Fees</h3>
+                <p className="muted-text">{currentActiveStudentFeeTarget.studentNumber || "No student number"}</p>
+              </div>
+              <span className="meta-badge">
+                {advisoryFees.filter((fee) => fee?.payments?.[currentActiveStudentFeeTarget.id]?.paid).length}/{advisoryFees.length} paid
+              </span>
+            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Fee</th>
+                  <th>Amount</th>
+                  <th>Due Date</th>
+                  <th>Status</th>
+                  <th>Paid At</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {advisoryFees.map((fee) => {
+                  const paymentRecord = fee?.payments?.[currentActiveStudentFeeTarget.id];
+                  const isPaid = Boolean(paymentRecord?.paid);
+                  const paymentKey = `${fee.id}-${currentActiveStudentFeeTarget.id}`;
+
+                  return (
+                    <tr key={fee.id}>
+                      <td data-label="Fee">{fee.name || "N/A"}</td>
+                      <td data-label="Amount">{formatCurrency(fee.amount)}</td>
+                      <td data-label="Due Date">{fee.dueDate ? formatDateLabel(fee.dueDate) : "N/A"}</td>
+                      <td data-label="Status">
+                        <span className={`status-pill ${isPaid ? "on-track" : "needs-support"}`}>
+                          {isPaid ? "Paid" : "Unpaid"}
+                        </span>
+                      </td>
+                      <td data-label="Paid At">{paymentRecord?.paidAt ? formatShortDate(paymentRecord.paidAt) : "N/A"}</td>
+                      <td data-label="Action">
+                        <button
+                          type="button"
+                          className={`secondary-btn${isPaid ? " danger-btn" : ""}`}
+                          disabled={savingFeePaymentKey === paymentKey}
+                          onClick={() => handleToggleFeePayment(fee, currentActiveStudentFeeTarget)}
+                        >
+                          {savingFeePaymentKey === paymentKey ? "Saving..." : isPaid ? "Mark Unpaid" : "Mark Paid"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!advisoryFees.length && (
+                  <tr>
+                    <td colSpan="6">No fees added for this advisory class yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setActiveStudentFeeTarget(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quarterBreakdownModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <div>
+                <h3>{quarterBreakdownModal.quarterLabel} Score Breakdown</h3>
+                <p className="muted-text">
+                  {quarterBreakdownModal.studentName} - {quarterBreakdownModal.subjectName}
+                </p>
+              </div>
+              <span className="meta-badge">Grade {quarterBreakdownModal.quarterGrade}</span>
+            </div>
+
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Scores</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-label="Category">Quizzes</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.quarterScores.writtenWork.quizzes)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Long Tests</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.quarterScores.writtenWork.longTests)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Activities</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.quarterScores.performanceTask.activities)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Projects</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.quarterScores.performanceTask.projects)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Exams</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.quarterScores.finalExam.exams)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setQuarterBreakdownModal(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFeeModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <h3>Add Fee</h3>
+              <span className="meta-badge">{advisoryClass?.section || advisoryClass?.name || "Advisory Class"}</span>
+            </div>
+            <form onSubmit={handleSaveFee}>
+              <div className="modal-form-grid">
+                <div className="form-group">
+                  <label>Fee Name</label>
+                  <input
+                    type="text"
+                    value={feeForm.name}
+                    onChange={(event) => setFeeForm((currentForm) => ({ ...currentForm, name: event.target.value }))}
+                    placeholder="Example: PTA Contribution"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Amount</label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={feeForm.amount}
+                    onChange={(event) => setFeeForm((currentForm) => ({ ...currentForm, amount: event.target.value }))}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Due Date</label>
+                  <input
+                    type="date"
+                    value={feeForm.dueDate}
+                    onChange={(event) => setFeeForm((currentForm) => ({ ...currentForm, dueDate: event.target.value }))}
+                  />
+                </div>
+                <div className="form-group form-group-full">
+                  <label>Notes</label>
+                  <textarea
+                    rows="3"
+                    value={feeForm.notes}
+                    onChange={(event) => setFeeForm((currentForm) => ({ ...currentForm, notes: event.target.value }))}
+                    placeholder="Optional details for the advisory class"
+                  />
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button type="submit" className="primary-btn" disabled={isSavingFee}>
+                  {isSavingFee ? "Saving..." : "Save Fee"}
+                </button>
+                <button type="button" className="secondary-btn" onClick={() => setShowFeeModal(false)} disabled={isSavingFee}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showSubjectModal && (
         <div className="modal-overlay">

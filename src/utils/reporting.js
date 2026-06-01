@@ -26,6 +26,19 @@ const slugify = (value) => {
 
 const normalizeNamePart = (value) => String(value || "").trim();
 const SCORE_ENTRY_KEYS = ["score", "earned", "value", "points", "total", "maxScore", "max", "over"];
+const formatFallbackFullName = (value) => {
+  const normalizedValue = normalizeNamePart(value);
+  if (!normalizedValue) return "";
+  if (normalizedValue.includes(",") || normalizedValue.includes("@")) return normalizedValue;
+
+  const nameParts = normalizedValue.split(/\s+/).filter(Boolean);
+  if (nameParts.length < 2) return normalizedValue;
+
+  const lastName = nameParts[nameParts.length - 1];
+  const firstName = nameParts.slice(0, -1).join(" ");
+
+  return `${lastName}, ${firstName}`;
+};
 
 const formatMiddleInitial = (middleValue) => {
   const trimmedValue = normalizeNamePart(middleValue);
@@ -55,7 +68,7 @@ export const formatPersonName = ({
   if (last) return last;
   if (first) return `${first}${middle ? ` ${middle}` : ""}`;
 
-  return normalizeNamePart(name) || normalizeNamePart(displayName) || fallback;
+  return formatFallbackFullName(name) || formatFallbackFullName(displayName) || fallback;
 };
 
 const isScoreEntryObject = (value) => (

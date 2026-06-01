@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
+import { normalizeStoredScoreEntry } from "../utils/reporting";
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
@@ -37,6 +38,40 @@ const getSubjectSnapshotGrade = (subject) => (
   ?? subject.q1
   ?? "N/A"
 );
+const formatCurrency = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "N/A";
+
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};
+const normalizeOptionalScoreArray = (value) => {
+  if (value === null || value === undefined || value === "") return [];
+  if (Array.isArray(value)) return value.map((score) => normalizeStoredScoreEntry(score));
+  return [normalizeStoredScoreEntry(value)];
+};
+const getQuarterScoreBreakdown = (subject, quarterKey) => {
+  const quarter = subject?.quarters?.[quarterKey] || {};
+
+  return {
+    quizzes: normalizeOptionalScoreArray(quarter.writtenWork?.quizzes ?? quarter.quizzes),
+    longTests: normalizeOptionalScoreArray(quarter.writtenWork?.longTests),
+    activities: normalizeOptionalScoreArray(quarter.performanceTask?.activities ?? quarter.activities),
+    projects: normalizeOptionalScoreArray(quarter.performanceTask?.projects),
+    exams: normalizeOptionalScoreArray(quarter.finalExam?.exams ?? quarter.exams)
+  };
+};
+const formatScoreListForDisplay = (values = []) => {
+  const normalizedValues = values
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return normalizedValues.length ? normalizedValues.join(", ") : "N/A";
+};
 
 const ParentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -47,6 +82,7 @@ const ParentView = ({ section = "overview" }) => {
     parentStudentAccessRequests,
     requestParentStudentAccess,
     cancelParentStudentAccessRequest,
+    classes,
     getClassAttendanceRecords
   } = useSchoolData();
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -59,6 +95,7 @@ const ParentView = ({ section = "overview" }) => {
   const [cancellingRequestId, setCancellingRequestId] = useState("");
   const [attendanceSubjectFilter, setAttendanceSubjectFilter] = useState("");
   const [attendancePage, setAttendancePage] = useState(1);
+  const [quarterBreakdownModal, setQuarterBreakdownModal] = useState(null);
   const isDashboardSection = section === "dashboard" || section === "overview";
 
   useEffect(() => {
@@ -79,6 +116,21 @@ const ParentView = ({ section = "overview" }) => {
     name: subject.name,
     grade: getSubjectSnapshotGrade(subject)
   })) || [];
+  const linkedStudentClass = classes.find((classroom) => classroom.id === linkedStudent?.classId) || null;
+  const linkedStudentFees = Object.entries(linkedStudentClass?.fees || {})
+    .map(([id, fee]) => {
+      const payment = fee?.payments?.[linkedStudent.id] || null;
+      return {
+        id,
+        ...fee,
+        status: payment?.paid ? "Paid" : "Unpaid",
+        paidAt: payment?.paidAt || ""
+      };
+    })
+    .sort((left, right) => (
+      String(left.dueDate || "").localeCompare(String(right.dueDate || ""))
+      || String(left.name || "").localeCompare(String(right.name || ""))
+    ));
   const attendanceReportRows = linkedStudent?.classId
     ? linkedStudent.subjects
       .flatMap((subject) => (
@@ -110,10 +162,21 @@ const ParentView = ({ section = "overview" }) => {
   const pendingAccessRequests = parentStudentAccessRequests.filter((request) => (
     request.parentId === currentUser?.uid && request.status === "pending"
   ));
+  const openQuarterBreakdownModal = (subject, quarter) => {
+    setQuarterBreakdownModal({
+      studentName: linkedStudent?.name || "Student",
+      subjectName: subject.name,
+      teacherName: subject.teacher,
+      quarterLabel: quarter.label,
+      quarterGrade: subject?.[quarter.key] ?? "N/A",
+      scores: getQuarterScoreBreakdown(subject, quarter.key)
+    });
+  };
 
   useEffect(() => {
     setAttendanceSubjectFilter("");
     setAttendancePage(1);
+    setQuarterBreakdownModal(null);
   }, [linkedStudent?.id]);
 
   useEffect(() => {
@@ -348,9 +411,13 @@ const ParentView = ({ section = "overview" }) => {
                   <td data-label="Teacher">{subject.teacher}</td>
                   {QUARTER_OPTIONS.map((quarter) => (
                     <td key={quarter.key} data-label={quarter.label}>
-                      <div className="quarter-score-summary">
-                        <strong>{subject[quarter.key] ?? "N/A"}</strong>
-                      </div>
+                      <button
+                        type="button"
+                        className="quarter-grade-trigger"
+                        onClick={() => openQuarterBreakdownModal(subject, quarter)}
+                      >
+                        {subject[quarter.key] ?? "N/A"}
+                      </button>
                     </td>
                   ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
@@ -430,6 +497,105 @@ const ParentView = ({ section = "overview" }) => {
               {filteredAttendanceRows.length === 0 && (
                 <tr>
                   <td colSpan="4">No attendance report available yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {quarterBreakdownModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <div>
+                <h3>{quarterBreakdownModal.quarterLabel} Score Breakdown</h3>
+                <p className="muted-text">
+                  {quarterBreakdownModal.studentName} - {quarterBreakdownModal.subjectName} - {quarterBreakdownModal.teacherName || "Teacher"}
+                </p>
+              </div>
+              <span className="meta-badge">Grade {quarterBreakdownModal.quarterGrade}</span>
+            </div>
+
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Scores</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-label="Category">Quizzes</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.quizzes)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Long Tests</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.longTests)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Activities</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.activities)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Projects</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.projects)}</td>
+                </tr>
+                <tr>
+                  <td data-label="Category">Exams</td>
+                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.exams)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setQuarterBreakdownModal(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {section === "fees" && (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>Student Fees</h3>
+              <p className="muted-text">{linkedStudentClass?.name || linkedStudentClass?.section || linkedStudent.className || "Assigned class only"}</p>
+            </div>
+            <span className="meta-badge">{linkedStudentFees.length} fee{linkedStudentFees.length === 1 ? "" : "s"}</span>
+          </div>
+
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Fee</th>
+                <th>Amount</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th>Paid At</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {linkedStudentFees.map((fee) => (
+                <tr key={fee.id}>
+                  <td data-label="Fee">{fee.name || "N/A"}</td>
+                  <td data-label="Amount">{formatCurrency(fee.amount)}</td>
+                  <td data-label="Due Date">{fee.dueDate || "N/A"}</td>
+                  <td data-label="Status">
+                    <span className={`status-pill ${getStatusClassName(fee.status === "Paid" ? "on track" : "needs support")}`}>
+                      {fee.status}
+                    </span>
+                  </td>
+                  <td data-label="Paid At">{fee.paidAt ? fee.paidAt.slice(0, 10) : "N/A"}</td>
+                  <td data-label="Notes">{fee.notes || "N/A"}</td>
+                </tr>
+              ))}
+              {!linkedStudentFees.length && (
+                <tr>
+                  <td colSpan="6">No fees assigned to this class yet.</td>
                 </tr>
               )}
             </tbody>

@@ -2015,6 +2015,158 @@ export const SchoolDataProvider = ({ children }) => {
     }
   };
 
+  const saveClassFee = async ({ classId, feeId = "", payload }) => {
+    if (!currentUser) {
+      throw new Error("Sign in before saving a fee.");
+    }
+
+    const classroom = rawClasses.find((item) => item.id === classId) || null;
+    if (!classroom) {
+      throw new Error("Advisory class not found.");
+    }
+
+    const isAdmin = userData?.role === "admin";
+    const isAssignedTeacher = userData?.role === "teacher" && [
+      classroom.teacherId,
+      classroom.teacherUid,
+      classroom.adviserId
+    ].includes(currentUser.uid);
+
+    if (!isAdmin && !isAssignedTeacher) {
+      throw new Error("Only the assigned adviser can manage fees for this class.");
+    }
+
+    const feeName = String(payload?.name || "").trim();
+    const amount = Number(payload?.amount);
+    const dueDate = String(payload?.dueDate || "").trim();
+    const notes = String(payload?.notes || "").trim();
+
+    if (!feeName) {
+      throw new Error("Fee name is required.");
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("Enter a valid fee amount.");
+    }
+
+    const targetFeeId = feeId || push(ref(db, `classes/${classId}/fees`)).key;
+    if (!targetFeeId) {
+      throw new Error("Fee ID could not be generated.");
+    }
+
+    const existingFee = classroom.fees?.[targetFeeId] || null;
+    const now = new Date().toISOString();
+    const actorName = userData?.displayName || userData?.email || currentUser.email || "System User";
+    const actorRole = userData?.role || "teacher";
+
+    await update(ref(db), {
+      [`classes/${classId}/fees/${targetFeeId}`]: {
+        ...(existingFee || {}),
+        name: feeName,
+        amount: Number(amount.toFixed(2)),
+        dueDate,
+        notes,
+        status: existingFee?.status || "active",
+        createdAt: existingFee?.createdAt || now,
+        createdBy: existingFee?.createdBy || currentUser.uid,
+        updatedAt: now,
+        updatedByName: actorName,
+        updatedByRole: actorRole
+      }
+    });
+
+    return targetFeeId;
+  };
+
+  const deleteClassFee = async ({ classId, feeId }) => {
+    if (!currentUser) {
+      throw new Error("Sign in before deleting a fee.");
+    }
+
+    const classroom = rawClasses.find((item) => item.id === classId) || null;
+    if (!classroom) {
+      throw new Error("Advisory class not found.");
+    }
+
+    const isAdmin = userData?.role === "admin";
+    const isAssignedTeacher = userData?.role === "teacher" && [
+      classroom.teacherId,
+      classroom.teacherUid,
+      classroom.adviserId
+    ].includes(currentUser.uid);
+
+    if (!isAdmin && !isAssignedTeacher) {
+      throw new Error("Only the assigned adviser can manage fees for this class.");
+    }
+
+    if (!String(feeId || "").trim()) {
+      throw new Error("Fee record not found.");
+    }
+
+    await update(ref(db), {
+      [`classes/${classId}/fees/${feeId}`]: null
+    });
+  };
+
+  const saveClassFeePayment = async ({ classId, feeId, studentId, paid }) => {
+    if (!currentUser) {
+      throw new Error("Sign in before updating fee payments.");
+    }
+
+    const classroom = rawClasses.find((item) => item.id === classId) || null;
+    if (!classroom) {
+      throw new Error("Advisory class not found.");
+    }
+
+    const fee = classroom.fees?.[feeId] || null;
+    if (!fee) {
+      throw new Error("Fee record not found.");
+    }
+
+    const isAdmin = userData?.role === "admin";
+    const isAssignedTeacher = userData?.role === "teacher" && [
+      classroom.teacherId,
+      classroom.teacherUid,
+      classroom.adviserId
+    ].includes(currentUser.uid);
+
+    if (!isAdmin && !isAssignedTeacher) {
+      throw new Error("Only the assigned adviser can manage fee payments for this class.");
+    }
+
+    const student = enrichedStudents.find((item) => item.id === studentId) || null;
+    if (!student) {
+      throw new Error("Student record not found.");
+    }
+
+    const paymentPath = `classes/${classId}/fees/${feeId}/payments/${studentId}`;
+
+    if (!paid) {
+      await update(ref(db), {
+        [paymentPath]: null
+      });
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const actorName = userData?.displayName || userData?.email || currentUser.email || "System User";
+    const actorRole = userData?.role || "teacher";
+
+    await update(ref(db), {
+      [paymentPath]: {
+        studentId,
+        studentName: student.name || formatPersonName(student),
+        paid: true,
+        paidAt: now,
+        updatedAt: now,
+        updatedByName: actorName,
+        updatedByRole: actorRole
+      }
+    });
+
+    return true;
+  };
+
   const saveTeacherRecord = async ({ teacherId, payload }) => {
     assertAdminAccess();
 
@@ -2505,6 +2657,8 @@ export const SchoolDataProvider = ({ children }) => {
     saveDailyAttendanceRecord,
     addStudentToClass,
     importBulkStudents,
+    saveClassFee,
+    saveClassFeePayment,
     saveGradeLevelRecord,
     deactivateGradeLevelRecord,
     saveClassRecord,
@@ -2526,6 +2680,7 @@ export const SchoolDataProvider = ({ children }) => {
     saveTeacherSubjects,
     saveTeacherSubjectClasses,
     saveSubjectScores,
+    deleteClassFee,
     updateStudentRecord
   };
 
