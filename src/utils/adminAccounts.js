@@ -29,13 +29,40 @@ const parseResponse = async (response) => {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(payload.error || "The request could not be completed.");
+    const error = new Error(payload.error || "The request could not be completed.");
+    error.status = response.status;
+    throw error;
   }
 
   return payload;
 };
 
-const isMissingLocalApiError = (error) => error?.message === "The request could not be completed.";
+const isRecoverableCreateError = (error) => {
+  const message = String(error?.message || "").trim().toLowerCase();
+  const status = Number(error?.status || 0);
+
+  if (!message) {
+    return false;
+  }
+
+  if (message === "the request could not be completed.") {
+    return true;
+  }
+
+  if (message.includes("failed to fetch") || message.includes("networkerror")) {
+    return true;
+  }
+
+  if (message.includes("firebase admin credentials are missing")) {
+    return true;
+  }
+
+  if ([404, 405].includes(status) || status >= 500) {
+    return true;
+  }
+
+  return false;
+};
 
 const isRateLimitError = (error) => {
   const message = String(error?.message || "").toLowerCase();
@@ -147,7 +174,7 @@ export const createManagedAccount = async ({ role, email, password, displayName 
 
     return createAccountWithSecondaryAuth(accountPayload);
   } catch (error) {
-    if (!isMissingLocalApiError(error)) {
+    if (!isRecoverableCreateError(error)) {
       throw error;
     }
 
