@@ -2,14 +2,29 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
 import { normalizeStoredScoreEntry } from "../utils/reporting";
+import {
+  formatSubjectAttendanceAverage,
+  getCurrentStudentSubjects,
+  mergeSubjectAttendanceRecords
+} from "../utils/studentSubjects";
 import "./TeacherDashboard.css";
 
-const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
+const getStatusClassName = (value) => String(value || "N/A").toLowerCase().replace(/\s+/g, "-");
 const QUARTER_OPTIONS = [
   { key: "q1", label: "Q1" },
   { key: "q2", label: "Q2" },
   { key: "q3", label: "Q3" },
   { key: "q4", label: "Q4" }
+];
+const SUBJECT_PANEL_COLORS = [
+  "#2563eb",
+  "#14b8a6",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#06b6d4",
+  "#84cc16",
+  "#f97316"
 ];
 const ATTENDANCE_PAGE_SIZE = 10;
 const formatAttendanceStatus = (status) => {
@@ -78,6 +93,7 @@ const StudentView = ({ section = "overview" }) => {
   const {
     classes,
     currentStudent,
+    teacherUsers,
     loading,
     error,
     requestClassJoin,
@@ -91,6 +107,7 @@ const StudentView = ({ section = "overview" }) => {
   const [attendancePage, setAttendancePage] = useState(1);
   const [quarterBreakdownModal, setQuarterBreakdownModal] = useState(null);
   const isDashboardSection = section === "dashboard" || section === "overview";
+  const shouldShowJoinPanel = section === "join" || (isDashboardSection && !currentStudent?.classId);
 
   const pendingRequest = classes
     .map((classroom) => ({
@@ -175,7 +192,7 @@ const StudentView = ({ section = "overview" }) => {
   if (!currentStudent) {
     return (
       <div className="student-view">
-        {section === "join" && renderClassCodePanel()}
+        {shouldShowJoinPanel && renderClassCodePanel()}
         <div className="empty-state">
           <h3>No student record found</h3>
           <p>Use Join Section to enter your section code and wait for teacher approval.</p>
@@ -184,18 +201,18 @@ const StudentView = ({ section = "overview" }) => {
     );
   }
 
-  const focusSubjects = [...currentStudent.subjects]
-    .sort((left, right) => (left.finalGrade ?? 0) - (right.finalGrade ?? 0))
-    .slice(0, 3);
-  const subjectGradeSnapshot = currentStudent.subjects.map((subject) => ({
+  const visibleSubjects = getCurrentStudentSubjects({ student: currentStudent, teacherUsers });
+  const visibleAttendanceLabel = formatSubjectAttendanceAverage(visibleSubjects, currentStudent.attendanceLabel);
+  const dashboardSubjects = visibleSubjects.map((subject, index) => ({
     id: subject.id,
     name: subject.name,
-    grade: getSubjectSnapshotGrade(subject)
+    teacher: subject.teacher || "Teacher not assigned",
+    color: SUBJECT_PANEL_COLORS[index % SUBJECT_PANEL_COLORS.length]
   }));
-  const gradeSubjectOptions = [...new Set(currentStudent.subjects.map((subject) => subject.name))];
+  const gradeSubjectOptions = [...new Set(visibleSubjects.map((subject) => subject.name))];
   const filteredGradeSubjects = gradeSubjectFilter
-    ? currentStudent.subjects.filter((subject) => subject.name === gradeSubjectFilter)
-    : currentStudent.subjects;
+    ? visibleSubjects.filter((subject) => subject.name === gradeSubjectFilter)
+    : visibleSubjects;
   const currentClass = classes.find((classroom) => classroom.id === currentStudent.classId) || null;
   const classFees = Object.entries(currentClass?.fees || {})
     .map(([id, fee]) => {
@@ -211,10 +228,20 @@ const StudentView = ({ section = "overview" }) => {
       String(left.dueDate || "").localeCompare(String(right.dueDate || ""))
       || String(left.name || "").localeCompare(String(right.name || ""))
     ));
+  const unpaidFeeCount = classFees.filter((fee) => fee.status !== "Paid").length;
   const attendanceReportRows = currentStudent.classId
-    ? currentStudent.subjects
-      .flatMap((subject) => (
-        getClassAttendanceRecords(currentStudent.classId, subject.name).map((record) => ({
+    ? visibleSubjects
+      .flatMap((subject) => {
+        const primaryRecords = getClassAttendanceRecords(
+          currentStudent.classId,
+          subject.name,
+          subject.code || subject.subjectCode || ""
+        );
+        const legacyRecords = subject.legacyName && subject.legacyName !== subject.name
+          ? getClassAttendanceRecords(currentStudent.classId, subject.legacyName)
+          : [];
+
+        return mergeSubjectAttendanceRecords([primaryRecords, legacyRecords]).map((record) => ({
           id: `${subject.id}-${record.date}`,
           date: record.date,
           subject: subject.name,
@@ -224,15 +251,21 @@ const StudentView = ({ section = "overview" }) => {
           notes: record.status === "no-class"
             ? (record.noClassReason || "No class")
             : (record.records?.[currentStudent.id]?.remarks || "")
-        }))
-      ))
+        }));
+      })
       .filter((row) => row.status && row.status !== "Not Marked")
       .sort((left, right) => String(right.date).localeCompare(String(left.date)))
     : [];
-  const attendanceSubjectOptions = [...new Set(attendanceReportRows.map((row) => row.subject))];
+  const attendanceSubjectOptions = [...new Set(visibleSubjects.map((subject) => subject.name).filter(Boolean))];
   const filteredAttendanceRows = attendanceSubjectFilter
     ? attendanceReportRows.filter((row) => row.subject === attendanceSubjectFilter)
     : attendanceReportRows;
+  const countedAttendanceRows = filteredAttendanceRows.filter((row) => row.status !== "No Class");
+  const attendanceSummary = {
+    classDays: countedAttendanceRows.length,
+    present: countedAttendanceRows.filter((row) => ["Present", "Tardy", "Excused"].includes(row.status)).length,
+    absent: countedAttendanceRows.filter((row) => ["Absent", "Unexcused"].includes(row.status)).length
+  };
   const attendanceTotalPages = Math.max(1, Math.ceil(filteredAttendanceRows.length / ATTENDANCE_PAGE_SIZE));
   const currentAttendancePage = Math.min(attendancePage, attendanceTotalPages);
   const paginatedAttendanceRows = filteredAttendanceRows.slice(
@@ -251,21 +284,17 @@ const StudentView = ({ section = "overview" }) => {
 
   return (
     <div className="student-view">
-      {section === "join" && renderClassCodePanel()}
+      {shouldShowJoinPanel && renderClassCodePanel()}
 
       {isDashboardSection && (
         <div className="stats-grid">
           <div className="stat-card">
-            <h4>Current GPA</h4>
-            <p>{currentStudent.gpa ?? "N/A"}</p>
+            <h4>Total Subjects</h4>
+            <p>{visibleSubjects.length}</p>
           </div>
           <div className="stat-card">
             <h4>Attendance Rate</h4>
-            <p>{currentStudent.attendanceLabel}</p>
-          </div>
-          <div className="stat-card">
-            <h4>Performance</h4>
-            <p>{currentStudent.performanceStatus}</p>
+            <p>{visibleAttendanceLabel}</p>
           </div>
         </div>
       )}
@@ -275,40 +304,45 @@ const StudentView = ({ section = "overview" }) => {
           <div className="insight-grid">
             <div className="panel">
               <div className="panel-header">
-                <h3>Live Progress Snapshot</h3>
-                {currentStudent.className && <span className="meta-badge">{currentStudent.className}</span>}
+                <h3>Subjects</h3>
+                <span className="meta-badge">{dashboardSubjects.length} total</span>
               </div>
-              {subjectGradeSnapshot.length ? (
-                <div className="report-strip">
-                  {subjectGradeSnapshot.map((subject) => (
-                    <div key={subject.id}>
-                      <span>{subject.name}</span>
-                      <strong>{subject.grade}</strong>
+              {dashboardSubjects.length ? (
+                <div className="handled-subject-list">
+                  {dashboardSubjects.map((subject) => (
+                    <div key={subject.id} className="handled-subject-item static">
+                      <span className="handled-subject-accent" style={{ backgroundColor: subject.color }} />
+                      <div className="handled-subject-copy">
+                        <strong>{subject.name}</strong>
+                        <p>{subject.teacher}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="empty-copy">No subject grades available yet.</p>
+                <p className="empty-copy">No subjects assigned yet.</p>
               )}
-              <p className="mt-4">{currentStudent.teacherRemarks || "No teacher note yet."}</p>
             </div>
 
             <div className="panel">
-              <h3>Focus Areas</h3>
-              {focusSubjects.length ? (
+              <div className="panel-header">
+                <h3>Fees</h3>
+                <span className="meta-badge">{unpaidFeeCount} unpaid</span>
+              </div>
+              {classFees.length ? (
                 <ul className="stack-list">
-                  {focusSubjects.map((subject) => (
-                    <li key={subject.id} className="list-row">
+                  {classFees.slice(0, 4).map((fee) => (
+                    <li key={fee.id} className="list-row">
                       <div>
-                        <strong>{subject.name}</strong>
-                        <p>{subject.teacher}</p>
+                        <strong>{fee.name || "Class fee"}</strong>
+                        <p>{fee.dueDate ? `Due ${fee.dueDate}` : "No due date"}</p>
                       </div>
-                      <span>{subject.finalGrade ?? "N/A"}</span>
+                      <span>{fee.status === "Paid" ? "Paid" : formatCurrency(fee.amount)}</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="empty-copy">No subjects available yet.</p>
+                <p className="empty-copy">No fees assigned yet.</p>
               )}
             </div>
           </div>
@@ -345,7 +379,6 @@ const StudentView = ({ section = "overview" }) => {
                 <th>Quarter 4</th>
                 <th>Final Grade</th>
                 <th>Attendance</th>
-                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -366,12 +399,11 @@ const StudentView = ({ section = "overview" }) => {
                   ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
                   <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
-                  <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
               {filteredGradeSubjects.length === 0 && (
                 <tr>
-                  <td colSpan="9">No grade records available yet.</td>
+                  <td colSpan="8">No grade records available yet.</td>
                 </tr>
               )}
             </tbody>
@@ -383,6 +415,20 @@ const StudentView = ({ section = "overview" }) => {
         <div className="panel">
           <div className="panel-header">
             <h3>Attendance Report</h3>
+          </div>
+          <div className="stats-grid attendance-summary-grid">
+            <div className="stat-card">
+              <h4>Class Days</h4>
+              <p>{attendanceSummary.classDays}</p>
+            </div>
+            <div className="stat-card">
+              <h4>Present</h4>
+              <p>{attendanceSummary.present}</p>
+            </div>
+            <div className="stat-card">
+              <h4>Absent</h4>
+              <p>{attendanceSummary.absent}</p>
+            </div>
           </div>
           <div className="table-filter-bar report-table-controls">
             <label className="selector-field">

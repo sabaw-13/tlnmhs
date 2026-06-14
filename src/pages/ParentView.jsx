@@ -2,14 +2,29 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
 import { normalizeStoredScoreEntry } from "../utils/reporting";
+import {
+  formatSubjectAttendanceAverage,
+  getCurrentStudentSubjects,
+  mergeSubjectAttendanceRecords
+} from "../utils/studentSubjects";
 import "./TeacherDashboard.css";
 
-const getStatusClassName = (value) => value.toLowerCase().replace(/\s+/g, "-");
+const getStatusClassName = (value) => String(value || "N/A").toLowerCase().replace(/\s+/g, "-");
 const QUARTER_OPTIONS = [
   { key: "q1", label: "Q1" },
   { key: "q2", label: "Q2" },
   { key: "q3", label: "Q3" },
   { key: "q4", label: "Q4" }
+];
+const SUBJECT_PANEL_COLORS = [
+  "#2563eb",
+  "#14b8a6",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#06b6d4",
+  "#84cc16",
+  "#f97316"
 ];
 const ATTENDANCE_PAGE_SIZE = 10;
 const formatAttendanceStatus = (status) => {
@@ -30,14 +45,6 @@ const formatAttendanceStatus = (status) => {
       return "Not Marked";
   }
 };
-const getSubjectSnapshotGrade = (subject) => (
-  subject.finalGrade
-  ?? subject.q4
-  ?? subject.q3
-  ?? subject.q2
-  ?? subject.q1
-  ?? "N/A"
-);
 const formatCurrency = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return "N/A";
@@ -83,6 +90,7 @@ const ParentView = ({ section = "overview" }) => {
     requestParentStudentAccess,
     cancelParentStudentAccessRequest,
     classes,
+    teacherUsers,
     getClassAttendanceRecords
   } = useSchoolData();
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -97,6 +105,7 @@ const ParentView = ({ section = "overview" }) => {
   const [attendancePage, setAttendancePage] = useState(1);
   const [quarterBreakdownModal, setQuarterBreakdownModal] = useState(null);
   const isDashboardSection = section === "dashboard" || section === "overview";
+  const shouldShowAccessRequestPanel = section === "requests" || (isDashboardSection && !linkedStudents.length);
 
   useEffect(() => {
     if (!linkedStudents.length) {
@@ -111,10 +120,17 @@ const ParentView = ({ section = "overview" }) => {
   }, [linkedStudents, selectedStudentId]);
 
   const linkedStudent = linkedStudents.find((student) => student.id === selectedStudentId) || linkedStudents[0] || null;
-  const subjectGradeSnapshot = linkedStudent?.subjects?.map((subject) => ({
+  const visibleSubjects = linkedStudent
+    ? getCurrentStudentSubjects({ student: linkedStudent, teacherUsers })
+    : [];
+  const visibleAttendanceLabel = linkedStudent
+    ? formatSubjectAttendanceAverage(visibleSubjects, linkedStudent.attendanceLabel)
+    : "N/A";
+  const dashboardSubjects = visibleSubjects.map((subject, index) => ({
     id: subject.id,
     name: subject.name,
-    grade: getSubjectSnapshotGrade(subject)
+    teacher: subject.teacher || "Teacher not assigned",
+    color: SUBJECT_PANEL_COLORS[index % SUBJECT_PANEL_COLORS.length]
   })) || [];
   const linkedStudentClass = classes.find((classroom) => classroom.id === linkedStudent?.classId) || null;
   const linkedStudentFees = Object.entries(linkedStudentClass?.fees || {})
@@ -132,9 +148,18 @@ const ParentView = ({ section = "overview" }) => {
       || String(left.name || "").localeCompare(String(right.name || ""))
     ));
   const attendanceReportRows = linkedStudent?.classId
-    ? linkedStudent.subjects
-      .flatMap((subject) => (
-        getClassAttendanceRecords(linkedStudent.classId, subject.name).map((record) => ({
+    ? visibleSubjects
+      .flatMap((subject) => {
+        const primaryRecords = getClassAttendanceRecords(
+          linkedStudent.classId,
+          subject.name,
+          subject.code || subject.subjectCode || ""
+        );
+        const legacyRecords = subject.legacyName && subject.legacyName !== subject.name
+          ? getClassAttendanceRecords(linkedStudent.classId, subject.legacyName)
+          : [];
+
+        return mergeSubjectAttendanceRecords([primaryRecords, legacyRecords]).map((record) => ({
           id: `${subject.id}-${record.date}`,
           date: record.date,
           subject: subject.name,
@@ -144,15 +169,22 @@ const ParentView = ({ section = "overview" }) => {
           notes: record.status === "no-class"
             ? (record.noClassReason || "No class")
             : (record.records?.[linkedStudent.id]?.remarks || "")
-        }))
-      ))
+        }));
+      })
       .filter((row) => row.status && row.status !== "Not Marked")
       .sort((left, right) => String(right.date).localeCompare(String(left.date)))
     : [];
-  const attendanceSubjectOptions = [...new Set(attendanceReportRows.map((row) => row.subject))];
+  const unpaidFeeCount = linkedStudentFees.filter((fee) => fee.status !== "Paid").length;
+  const attendanceSubjectOptions = [...new Set(visibleSubjects.map((subject) => subject.name).filter(Boolean))];
   const filteredAttendanceRows = attendanceSubjectFilter
     ? attendanceReportRows.filter((row) => row.subject === attendanceSubjectFilter)
     : attendanceReportRows;
+  const countedAttendanceRows = filteredAttendanceRows.filter((row) => row.status !== "No Class");
+  const attendanceSummary = {
+    classDays: countedAttendanceRows.length,
+    present: countedAttendanceRows.filter((row) => ["Present", "Tardy", "Excused"].includes(row.status)).length,
+    absent: countedAttendanceRows.filter((row) => ["Absent", "Unexcused"].includes(row.status)).length
+  };
   const attendanceTotalPages = Math.max(1, Math.ceil(filteredAttendanceRows.length / ATTENDANCE_PAGE_SIZE));
   const currentAttendancePage = Math.min(attendancePage, attendanceTotalPages);
   const paginatedAttendanceRows = filteredAttendanceRows.slice(
@@ -292,10 +324,10 @@ const ParentView = ({ section = "overview" }) => {
   if (!linkedStudent) {
     return (
       <div className="parent-view">
-        {section === "requests" && renderAccessRequestPanel()}
+        {shouldShowAccessRequestPanel && renderAccessRequestPanel()}
         <div className="empty-state">
           <h3>No linked student yet</h3>
-          <p>Use Requests to find your student and ask for access. Admin approval is required before records appear here.</p>
+          <p>Submit a student access request above. Admin approval is required before records appear here.</p>
         </div>
       </div>
     );
@@ -337,16 +369,12 @@ const ParentView = ({ section = "overview" }) => {
       {isDashboardSection && (
         <div className="stats-grid">
           <div className="stat-card">
-            <h4>Academic Average</h4>
-            <p>{linkedStudent.gpa ?? "N/A"}</p>
+            <h4>Total Subjects</h4>
+            <p>{visibleSubjects.length}</p>
           </div>
           <div className="stat-card">
-            <h4>Attendance</h4>
-            <p>{linkedStudent.attendanceLabel}</p>
-          </div>
-          <div className="stat-card">
-            <h4>Performance</h4>
-            <p>{linkedStudent.performanceStatus}</p>
+            <h4>Attendance Rate</h4>
+            <p>{visibleAttendanceLabel}</p>
           </div>
         </div>
       )}
@@ -354,34 +382,46 @@ const ParentView = ({ section = "overview" }) => {
       {isDashboardSection && (
         <div className="insight-grid">
           <div className="panel">
-            <h3>Parent Summary</h3>
-            {subjectGradeSnapshot.length ? (
-              <div className="report-strip">
-                {subjectGradeSnapshot.map((subject) => (
-                  <div key={subject.id}>
-                    <span>{subject.name}</span>
-                    <strong>{subject.grade}</strong>
+            <div className="panel-header">
+              <h3>Subjects</h3>
+              <span className="meta-badge">{dashboardSubjects.length} total</span>
+            </div>
+            {dashboardSubjects.length ? (
+              <div className="handled-subject-list">
+                {dashboardSubjects.map((subject) => (
+                  <div key={subject.id} className="handled-subject-item static">
+                    <span className="handled-subject-accent" style={{ backgroundColor: subject.color }} />
+                    <div className="handled-subject-copy">
+                      <strong>{subject.name}</strong>
+                      <p>{subject.teacher}</p>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="empty-copy">No subject grades available yet.</p>
+              <p className="empty-copy">No subjects assigned yet.</p>
             )}
-            <p className="mt-4">{linkedStudent.teacherRemarks || "No teacher note yet."}</p>
           </div>
 
           <div className="panel">
-            <h3>Alerts and Recommendations</h3>
-            {linkedStudent.alerts.length ? (
+            <div className="panel-header">
+              <h3>Fees</h3>
+              <span className="meta-badge">{unpaidFeeCount} unpaid</span>
+            </div>
+            {linkedStudentFees.length ? (
               <ul className="stack-list">
-                {linkedStudent.alerts.map((alert) => (
-                  <li key={alert} className="list-row">
-                    <strong>{alert}</strong>
+                {linkedStudentFees.slice(0, 4).map((fee) => (
+                  <li key={fee.id} className="list-row">
+                    <div>
+                      <strong>{fee.name || "Class fee"}</strong>
+                      <p>{fee.dueDate ? `Due ${fee.dueDate}` : "No due date"}</p>
+                    </div>
+                    <span>{fee.status === "Paid" ? "Paid" : formatCurrency(fee.amount)}</span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="empty-copy">No active alerts.</p>
+              <p className="empty-copy">No fees assigned yet.</p>
             )}
           </div>
         </div>
@@ -401,11 +441,10 @@ const ParentView = ({ section = "overview" }) => {
                 <th>Quarter 4</th>
                 <th>Final Grade</th>
                 <th>Attendance</th>
-                <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {linkedStudent.subjects.map((subject) => (
+              {visibleSubjects.map((subject) => (
                 <tr key={subject.id}>
                   <td data-label="Subject">{subject.name}</td>
                   <td data-label="Teacher">{subject.teacher}</td>
@@ -422,12 +461,11 @@ const ParentView = ({ section = "overview" }) => {
                   ))}
                   <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
                   <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
-                  <td data-label="Status"><span className={`status-pill ${getStatusClassName(subject.status)}`}>{subject.status}</span></td>
                 </tr>
               ))}
-              {linkedStudent.subjects.length === 0 && (
+              {visibleSubjects.length === 0 && (
                 <tr>
-                  <td colSpan="9">No grade records available yet.</td>
+                  <td colSpan="8">No grade records available yet.</td>
                 </tr>
               )}
             </tbody>
@@ -439,6 +477,20 @@ const ParentView = ({ section = "overview" }) => {
         <div className="panel">
           <div className="panel-header">
             <h3>Attendance Report</h3>
+          </div>
+          <div className="stats-grid attendance-summary-grid">
+            <div className="stat-card">
+              <h4>Class Days</h4>
+              <p>{attendanceSummary.classDays}</p>
+            </div>
+            <div className="stat-card">
+              <h4>Present</h4>
+              <p>{attendanceSummary.present}</p>
+            </div>
+            <div className="stat-card">
+              <h4>Absent</h4>
+              <p>{attendanceSummary.absent}</p>
+            </div>
           </div>
           <div className="table-filter-bar report-table-controls">
             <label className="selector-field">

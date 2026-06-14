@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 import { get, push, ref, set } from "firebase/database";
 import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase";
@@ -52,6 +52,16 @@ const Login = () => {
   const [error, setError] = useState("");
   const { login, authError } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (requestMessage?.type !== "success") return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setRequestMessage(null);
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [requestMessage]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -213,6 +223,23 @@ const Login = () => {
 
   return (
     <div className="login-container">
+      {requestMessage && (
+        <div className={`login-toast ${requestMessage.type === "error" ? "error" : "success"}`} role="status" aria-live="polite">
+          <div className="login-toast-copy">
+            <strong>{requestMessage.type === "error" ? "Request failed" : "Request sent"}</strong>
+            <p>{requestMessage.text}</p>
+          </div>
+          <button
+            type="button"
+            className="login-toast-close"
+            aria-label="Dismiss notification"
+            onClick={() => setRequestMessage(null)}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       <div className="login-card">
         <h1>TLNMHS</h1>
         {!showParentRequest ? (
@@ -257,11 +284,6 @@ const Login = () => {
           </form>
         ) : (
           <form onSubmit={handleParentRequestSubmit}>
-            {requestMessage && (
-              <div className={requestMessage.type === "error" ? "error-message" : "success-message"}>
-                {requestMessage.text}
-              </div>
-            )}
             <div className="form-group">
               <label>Parent Name</label>
               <input

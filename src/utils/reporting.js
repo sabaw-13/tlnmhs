@@ -292,6 +292,7 @@ export const normalizeSubjects = (subjectSource, fallbackTeacher = "") => {
 
       return {
         id: subject.id || key || slugify(subject.name),
+        code: String(subject.code || subject.subjectCode || "").trim().toUpperCase(),
         name: subject.name || subject.subject || "Untitled Subject",
         teacher: subject.teacher || fallbackTeacher || "Teacher not assigned",
         gradeWeights,

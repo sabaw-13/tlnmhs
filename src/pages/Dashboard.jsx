@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { useSchoolData } from "../context/SchoolDataContext";
 import {
   BarChart3,
   BookOpen,
@@ -9,7 +10,6 @@ import {
   Receipt,
   ClipboardCheck,
   GraduationCap,
-  Inbox,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -183,6 +183,7 @@ const HEADER_COPY = {
 const Dashboard = () => {
   const { userData, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { currentStudent } = useSchoolData();
   const location = useLocation();
   const navigate = useNavigate();
   const role = userData?.role;
@@ -261,8 +262,13 @@ const Dashboard = () => {
     }
 
     if (role === "student") {
+      const showJoinSection = !currentStudent?.classId;
+
       return [
         ...common,
+        ...(showJoinSection
+          ? [{ path: "/dashboard/join-class", label: "Join Section", icon: <School size={19} /> }]
+          : []),
         { path: "/dashboard/grades", label: "My Grades", icon: <GraduationCap size={19} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={19} /> },
         { path: "/dashboard/fees", label: "Fees", icon: <Receipt size={19} /> },
@@ -273,7 +279,6 @@ const Dashboard = () => {
     if (role === "parent") {
       return [
         ...common,
-        { path: "/dashboard/requests", label: "Requests", icon: <Inbox size={19} /> },
         { path: "/dashboard/child-report", label: "Child Report", icon: <BookOpen size={19} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <ClipboardCheck size={19} /> },
         { path: "/dashboard/fees", label: "Fees", icon: <Receipt size={19} /> },
@@ -315,7 +320,7 @@ const Dashboard = () => {
         return (
           <>
             <Route index element={<StudentView section="dashboard" />} />
-            <Route path="join-class" element={<Navigate to="/dashboard" replace />} />
+            <Route path="join-class" element={<StudentView section="join" />} />
             <Route path="grades" element={<StudentView section="grades" />} />
             <Route path="attendance" element={<StudentView section="attendance" />} />
             <Route path="fees" element={<StudentView section="fees" />} />
@@ -325,7 +330,7 @@ const Dashboard = () => {
         return (
           <>
             <Route index element={<ParentView section="dashboard" />} />
-            <Route path="requests" element={<ParentView section="requests" />} />
+            <Route path="requests" element={<Navigate to="/dashboard" replace />} />
             <Route path="child-report" element={<ParentView section="report" />} />
             <Route path="attendance" element={<ParentView section="attendance" />} />
             <Route path="fees" element={<ParentView section="fees" />} />

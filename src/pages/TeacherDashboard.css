@@ -676,6 +676,16 @@
   transform: translateY(-1px);
 }
 
+.handled-subject-item.static {
+  cursor: default;
+}
+
+.handled-subject-item.static:hover {
+  border-color: var(--surface-subtle-border);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
 .handled-subject-accent {
   border-radius: var(--radius) 0 0 var(--radius);
 }
@@ -828,6 +838,116 @@
 .management-table {
   border-radius: 0;
   box-shadow: none;
+}
+
+.teacher-accounts-table {
+  table-layout: fixed;
+  overflow: visible;
+}
+
+.teacher-accounts-panel {
+  overflow: visible;
+}
+
+.teacher-accounts-table th:nth-child(1),
+.teacher-accounts-table td:nth-child(1) {
+  width: 10%;
+}
+
+.teacher-accounts-table th:nth-child(2),
+.teacher-accounts-table td:nth-child(2) {
+  width: 13%;
+}
+
+.teacher-accounts-table th:nth-child(3),
+.teacher-accounts-table td:nth-child(3) {
+  width: 27%;
+}
+
+.teacher-accounts-table th:nth-child(4),
+.teacher-accounts-table td:nth-child(4) {
+  width: 11%;
+}
+
+.teacher-accounts-table th:nth-child(5),
+.teacher-accounts-table td:nth-child(5) {
+  width: 6%;
+}
+
+.teacher-accounts-table th:nth-child(6),
+.teacher-accounts-table td:nth-child(6) {
+  width: 33%;
+  white-space: nowrap;
+}
+
+.teacher-accounts-table td {
+  vertical-align: middle;
+}
+
+.teacher-account-cell {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teacher-account-subjects {
+  width: 100%;
+}
+
+.teacher-account-tooltip {
+  position: relative;
+  cursor: default;
+  z-index: 1;
+}
+
+.teacher-account-tooltip:hover::after,
+.teacher-account-tooltip:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 30;
+  width: max-content;
+  max-width: min(420px, 60vw);
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--text-main);
+  color: #fff;
+  box-shadow: var(--shadow-lg);
+  white-space: normal;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.teacher-account-tooltip:hover::before,
+.teacher-account-tooltip:focus-visible::before {
+  content: "";
+  position: absolute;
+  left: 0.9rem;
+  top: calc(100% + 0.05rem);
+  z-index: 31;
+  border-width: 0.4rem;
+  border-style: solid;
+  border-color: transparent transparent var(--text-main) transparent;
+}
+
+.teacher-accounts-table .table-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  width: auto;
+  max-width: 100%;
+}
+
+.teacher-accounts-table .table-actions .secondary-btn,
+.teacher-accounts-table .table-actions .primary-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0.55rem 0.72rem;
+  font-size: 0.8rem;
 }
 
 .management-table th {
@@ -1043,6 +1163,10 @@
   gap: 0.625rem;
 }
 
+.attendance-summary-grid {
+  margin-bottom: 1rem;
+}
+
 .attendance-day-panel {
   display: flex;
   flex-direction: column;
@@ -1114,6 +1238,13 @@
   padding: 0.52rem 0.8rem;
   font-size: 0.82rem;
   margin-top: 0.25rem;
+}
+
+.attendance-sheet-toolbar .attendance-save-btn {
+  align-self: end;
+  min-height: 44px;
+  margin-top: 0;
+  white-space: nowrap;
 }
 
 .attendance-option:hover {
@@ -1330,7 +1461,34 @@
 }
 
 .teacher-subject-grid {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(120px, 0.45fr) minmax(0, 1fr) auto;
+}
+
+.teacher-subject-assignment {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+}
+
+.teacher-subject-assignment-header,
+.teacher-subject-assignment-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.teacher-subject-assignment-controls .form-group {
+  margin: 0;
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
+.teacher-subject-assignment-controls .text-btn {
+  white-space: nowrap;
 }
 
 .subject-score-grid {

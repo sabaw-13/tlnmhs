@@ -1101,7 +1101,7 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
                 </button>
               </div>
               <div className="management-table-wrap">
-                <table className="data-table management-table">
+            <table className="data-table management-table teacher-accounts-table">
                   <thead>
                     <tr>
                       <th>Grade Level</th>
@@ -1217,12 +1217,12 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
 
       {section === "teachers" && (
         <>
-          <div className="panel">
+          <div className="panel teacher-accounts-panel">
           <div className="panel-header">
             <h3>Teacher Accounts</h3>
             <span className="meta-badge">{teacherUsers.length} accounts</span>
           </div>
-          <table className="data-table">
+          <table className="data-table teacher-accounts-table">
             <thead>
               <tr>
                 <th>Teacher</th>
@@ -1236,11 +1236,44 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
             <tbody>
               {teacherUsers.map((teacher) => (
                 <tr key={teacher.id}>
-                  <td data-label="Teacher">{teacher.name}</td>
-                  <td data-label="Email">{teacher.email || "N/A"}</td>
-                  <td data-label="Subjects">{teacher.subjects.length ? teacher.subjects.join(", ") : "None"}</td>
-                  <td data-label="Advisory">{teacher.advisoryClassName || "No Advisory"}</td>
-                  <td data-label="Sections">{teacher.classCount}</td>
+                  <td data-label="Teacher">
+                    <span className="teacher-account-cell" title={teacher.name}>
+                      {teacher.name}
+                    </span>
+                  </td>
+                  <td data-label="Email">
+                    <span className="teacher-account-cell" title={teacher.email || "N/A"}>
+                      {teacher.email || "N/A"}
+                    </span>
+                  </td>
+                  <td data-label="Subjects">
+                    {(() => {
+                      const fullSubjectsLabel = teacher.subjectRecords?.length
+                        ? teacher.subjectRecords.map((subject) => (
+                          subject.code ? `${subject.code} - ${subject.name}` : subject.name
+                        )).join(", ")
+                        : teacher.subjects.length ? teacher.subjects.join(", ") : "None";
+
+                      return (
+                    <span
+                      className="teacher-account-cell teacher-account-subjects teacher-account-tooltip"
+                      data-tooltip={fullSubjectsLabel}
+                    >
+                      {fullSubjectsLabel}
+                    </span>
+                      );
+                    })()}
+                  </td>
+                  <td data-label="Advisory">
+                    <span className="teacher-account-cell" title={teacher.advisoryClassName || "No Advisory"}>
+                      {teacher.advisoryClassName || "No Advisory"}
+                    </span>
+                  </td>
+                  <td data-label="Sections">
+                    <span className="teacher-account-cell" title={String(teacher.classCount)}>
+                      {teacher.classCount}
+                    </span>
+                  </td>
                   <td data-label="Action">
                     <div className="table-actions">
                       <button className="secondary-btn" type="button" onClick={() => setManagingTeacher(teacher)}>
@@ -1665,6 +1698,8 @@ const AdminView = ({ section = "overview", setHeaderActions = noopHeaderActions 
             const assignedTeacherId = classroom.teacherId || classroom.teacherUid || classroom.adviserId || "";
             return !assignedTeacherId || assignedTeacherId === managingTeacher?.id;
           })}
+          subjectClassOptions={classReports}
+          gradeLevelOptions={gradeLevels}
           saving={savingTeacher || Boolean(savingTeacherId)}
           onClose={() => setManagingTeacher(null)}
           onSubmit={handleSaveTeacher}

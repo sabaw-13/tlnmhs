@@ -78,6 +78,13 @@ const buildSubjectKey = (value) => String(value || "")
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-|-$/g, "");
+const buildTeacherSubjectStorageKey = (subject) => {
+  if (subject && typeof subject === "object") {
+    return buildSubjectKey(subject.code || subject.subjectCode || subject.name || subject.subject || "");
+  }
+
+  return buildSubjectKey(subject);
+};
 
 const SCORE_ENTRY_KEYS = ["score", "earned", "value", "points", "total", "maxScore", "max", "over"];
 const isScoreEntryObject = (value) => (
@@ -242,37 +249,62 @@ const averageValues = (values) => {
   const total = validValues.reduce((sum, value) => sum + value, 0);
   return Number((total / validValues.length).toFixed(1));
 };
-const normalizeTeacherSubjects = (subjectSource) => {
+const normalizeTeacherSubjectRecords = (subjectSource) => {
   if (!subjectSource) return [];
 
+  const toSubjectRecord = (subject) => {
+    if (typeof subject === "string") {
+      const name = subject.trim();
+      return name ? { code: "", name } : null;
+    }
+
+    if (subject && typeof subject === "object") {
+      const code = String(subject.code || subject.subjectCode || "").trim().toUpperCase();
+      const name = String(subject.name || subject.subject || "").trim();
+
+      if (!code && !name) return null;
+
+      return {
+        code,
+        name: name || code
+      };
+    }
+
+    return null;
+  };
+
+  const dedupeRecords = (records) => {
+    const seen = new Set();
+
+    return records.filter((record) => {
+      const key = `${normalizeLookupValue(record.code)}::${normalizeLookupValue(record.name)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
   if (Array.isArray(subjectSource)) {
-    return subjectSource
-      .map((subject) => {
-        if (typeof subject === "string") return subject.trim();
-        if (subject && typeof subject === "object") return String(subject.name || subject.subject || "").trim();
-        return "";
-      })
-      .filter(Boolean);
+    return dedupeRecords(subjectSource.map(toSubjectRecord).filter(Boolean));
   }
 
   if (typeof subjectSource === "string") {
-    return subjectSource
-      .split(",")
-      .map((subject) => subject.trim())
-      .filter(Boolean);
+    return dedupeRecords(
+      subjectSource
+        .split(",")
+        .map(toSubjectRecord)
+        .filter(Boolean)
+    );
   }
 
   if (typeof subjectSource === "object") {
-    return Object.values(subjectSource)
-      .map((subject) => {
-        if (typeof subject === "string") return subject.trim();
-        if (subject && typeof subject === "object") return String(subject.name || subject.subject || "").trim();
-        return "";
-      })
-      .filter(Boolean);
+    return dedupeRecords(Object.values(subjectSource).map(toSubjectRecord).filter(Boolean));
   }
 
   return [];
+};
+const normalizeTeacherSubjects = (subjectSource) => {
+  return normalizeTeacherSubjectRecords(subjectSource).map((subject) => subject.name);
 };
 
 export const useSchoolData = () => useContext(SchoolDataContext);
@@ -625,6 +657,7 @@ export const SchoolDataProvider = ({ children }) => {
   const teacherUsers = users
     .filter((user) => user.role === "teacher")
     .map((teacher) => {
+      const subjectRecords = normalizeTeacherSubjectRecords(teacher.subjects);
       const teacherClasses = classes.filter((classroom) => (
         classroom.teacherId === teacher.id
         || classroom.teacherUid === teacher.id
@@ -638,7 +671,8 @@ export const SchoolDataProvider = ({ children }) => {
         id: teacher.id,
         name: teacher.displayName || teacher.name || teacher.email || "Teacher",
         email: teacher.email || "",
-        subjects: normalizeTeacherSubjects(teacher.subjects),
+        subjects: subjectRecords.map((subject) => subject.name),
+        subjectRecords,
         subjectClassIds: teacher.subjectClassIds || {},
         advisoryClassId: advisoryClass?.id || teacher.advisoryClassId || "",
         advisoryClassName: advisoryClass?.name || advisoryClass?.section || teacher.advisoryClassName || "",
@@ -646,10 +680,13 @@ export const SchoolDataProvider = ({ children }) => {
       };
     });
 
-  const getClassAttendanceRecords = (classId, subjectName = "") => {
-    const subjectKey = buildSubjectKey(subjectName);
+  const getClassAttendanceRecords = (classId, subjectName = "", subjectCode = "") => {
+    const subjectKey = buildSubjectKey(subjectCode || subjectName);
+    const legacySubjectKey = buildSubjectKey(subjectName);
     const classRecords = subjectKey
-      ? attendanceRecords?.[classId]?.[subjectKey] || {}
+      ? attendanceRecords?.[classId]?.[subjectKey]
+        || (legacySubjectKey && legacySubjectKey !== subjectKey ? attendanceRecords?.[classId]?.[legacySubjectKey] : null)
+        || {}
       : attendanceRecords?.[classId] || {};
 
     return Object.entries(classRecords)
@@ -661,20 +698,22 @@ export const SchoolDataProvider = ({ children }) => {
       .sort((left, right) => String(right.date).localeCompare(String(left.date)));
   };
 
-  const getAttendanceRecord = (classId, date, subjectName = "") => {
+  const getAttendanceRecord = (classId, date, subjectName = "", subjectCode = "") => {
     if (!classId || !date) return null;
 
-    const subjectKey = buildSubjectKey(subjectName);
+    const subjectKey = buildSubjectKey(subjectCode || subjectName);
+    const legacySubjectKey = buildSubjectKey(subjectName);
     const record = subjectKey
       ? attendanceRecords?.[classId]?.[subjectKey]?.[date]
+        || (legacySubjectKey && legacySubjectKey !== subjectKey ? attendanceRecords?.[classId]?.[legacySubjectKey]?.[date] : null)
       : attendanceRecords?.[classId]?.[date];
     if (!record || typeof record !== "object") return null;
 
     return record.date ? record : { date, subjectKey, subjectName, ...record };
   };
 
-  const calculateAttendanceRate = ({ classId, studentId, date, nextRecord, subjectName }) => {
-    const subjectKey = buildSubjectKey(subjectName || nextRecord?.subjectName);
+  const calculateAttendanceRate = ({ classId, studentId, date, nextRecord, subjectName, subjectCode = "" }) => {
+    const subjectKey = buildSubjectKey(subjectCode || subjectName || nextRecord?.subjectCode || nextRecord?.subjectName);
     const classRecords = {
       ...(subjectKey
         ? attendanceRecords?.[classId]?.[subjectKey] || {}
@@ -742,28 +781,36 @@ export const SchoolDataProvider = ({ children }) => {
     });
     let targetStudentId = studentId;
     const existingUserForSync = studentId ? users.find((user) => user.id === studentId) || null : null;
+    const requestedClassId = payload.classId ?? null;
+    const requestedClassroom = classes.find((item) => item.id === requestedClassId) || null;
+    const isRequestedClassAdviser = requestedClassroom && [
+      requestedClassroom.teacherId,
+      requestedClassroom.teacherUid,
+      requestedClassroom.adviserId,
+      requestedClassroom.ownerId
+    ].includes(currentUser?.uid);
 
     if (isNewStudent) {
-      if (userData?.role === "admin") {
-        if (!trimmedStudentEmail) {
-          throw new Error("Student email is required to create the account.");
-        }
-
-        if (trimmedStudentNumber.length < 6) {
-          throw new Error("Student ID number must be at least 6 characters to use as the default password.");
-        }
-
-        const createdAccount = await createManagedAccount({
-          role: "student",
-          email: trimmedStudentEmail,
-          password: trimmedStudentNumber,
-          displayName: trimmedStudentName
-        });
-
-        targetStudentId = createdAccount.uid;
-      } else {
-        throw new Error("Teachers can only add existing students to their advisory section.");
+      if (userData?.role === "teacher" && (!requestedClassroom || !isRequestedClassAdviser)) {
+        throw new Error("Teachers can only add new students to their advisory section.");
       }
+
+      if (!trimmedStudentEmail) {
+        throw new Error("Student email is required to create the account.");
+      }
+
+      if (trimmedStudentNumber.length < 6) {
+        throw new Error("Student ID number must be at least 6 characters to use as the default password.");
+      }
+
+      const createdAccount = await createManagedAccount({
+        role: "student",
+        email: trimmedStudentEmail,
+        password: trimmedStudentNumber,
+        displayName: trimmedStudentName
+      });
+
+      targetStudentId = createdAccount.uid;
     } else if (userData?.role === "admin" && existingUserForSync) {
       const existingDisplayName = existingUserForSync.displayName || existingUserForSync.name || "";
       const hasEmailChanged = trimmedStudentEmail && trimmedStudentEmail !== existingUserForSync.email;
@@ -1912,6 +1959,7 @@ export const SchoolDataProvider = ({ children }) => {
     classId,
     className,
     subjectName,
+    subjectCode = "",
     date,
     isNoClass = false,
     noClassReason = "",
@@ -1922,7 +1970,8 @@ export const SchoolDataProvider = ({ children }) => {
     }
 
     const normalizedSubjectName = String(subjectName || "").trim();
-    const subjectKey = buildSubjectKey(normalizedSubjectName);
+    const normalizedSubjectCode = String(subjectCode || "").trim().toUpperCase();
+    const subjectKey = buildSubjectKey(normalizedSubjectCode || normalizedSubjectName);
     if (!subjectKey) {
       throw new Error("Subject is required to save attendance.");
     }
@@ -1946,6 +1995,7 @@ export const SchoolDataProvider = ({ children }) => {
       classId,
       className: className || classroom?.name || classroom?.section || "",
       subjectName: normalizedSubjectName,
+      subjectCode: normalizedSubjectCode,
       subjectKey,
       date,
       status: isNoClass ? "no-class" : "recorded",
@@ -1968,17 +2018,23 @@ export const SchoolDataProvider = ({ children }) => {
         studentId: entry.studentId,
         date,
         nextRecord,
-        subjectName: normalizedSubjectName
+        subjectName: normalizedSubjectName,
+        subjectCode: normalizedSubjectCode
       });
       const nextAttendanceLabel = attendanceRate === null ? "N/A" : `${attendanceRate}%`;
       const existingSubjects = student.subjects || [];
-      const subjectIndex = existingSubjects.findIndex((subject) => (
-        String(subject.name || "").trim().toLowerCase() === normalizedSubjectName.toLowerCase()
-      ));
+      const subjectIndex = normalizedSubjectCode
+        ? existingSubjects.findIndex((subject) => (
+          String(subject.code || subject.subjectCode || "").trim().toUpperCase() === normalizedSubjectCode
+        ))
+        : existingSubjects.findIndex((subject) => (
+          String(subject.name || "").trim().toLowerCase() === normalizedSubjectName.toLowerCase()
+        ));
       const previousSubject = subjectIndex >= 0 ? existingSubjects[subjectIndex] : {};
       const nextSubject = {
         ...previousSubject,
         id: previousSubject.id || `subject-${subjectKey}`,
+        code: normalizedSubjectCode || previousSubject.code || "",
         name: previousSubject.name || normalizedSubjectName,
         teacher: previousSubject.teacher || userData?.displayName || userData?.email || currentUser?.email || "Teacher",
         attendanceRate,
@@ -2212,7 +2268,26 @@ export const SchoolDataProvider = ({ children }) => {
     const existingTeacherData = existingTeacher ? { ...existingTeacher } : {};
     delete existingTeacherData.id;
 
-    const teacherSubjects = normalizeTeacherSubjects(payload.subjects);
+    const teacherSubjects = normalizeTeacherSubjectRecords(payload.subjects);
+    const teacherSubjectClassIds = teacherSubjects.reduce((subjectMap, subject, index) => {
+      const subjectKey = buildTeacherSubjectStorageKey(subject);
+      if (!subjectKey) return subjectMap;
+
+      const classIds = Array.isArray(payload.subjects?.[index]?.classIds)
+        ? payload.subjects[index].classIds
+        : [];
+      const normalizedClassIds = [...new Set(
+        classIds
+          .map((classId) => String(classId || "").trim())
+          .filter((classId) => classes.some((classroom) => classroom.id === classId))
+      )];
+
+      subjectMap[subjectKey] = normalizedClassIds.reduce((classMap, classId) => ({
+        ...classMap,
+        [classId]: true
+      }), {});
+      return subjectMap;
+    }, {});
     const now = new Date().toISOString();
     const advisoryClassId = String(payload.advisoryClassId || "").trim();
     const advisoryClass = classes.find((classroom) => classroom.id === advisoryClassId) || null;
@@ -2227,6 +2302,7 @@ export const SchoolDataProvider = ({ children }) => {
           email: teacherEmail,
           role: "teacher",
           subjects: teacherSubjects,
+          subjectClassIds: teacherSubjectClassIds,
           advisoryClassId,
           advisoryClassName: advisoryClass?.name || advisoryClass?.section || "",
           updatedAt: now,
@@ -2439,9 +2515,9 @@ export const SchoolDataProvider = ({ children }) => {
     }
 
     const teacherUser = users.find((user) => user.id === currentUser.uid) || userData || {};
-    const previousSubjects = normalizeTeacherSubjects(teacherUser.subjects);
-    const teacherSubjects = normalizeTeacherSubjects(subjects);
-    const nextSubjectNames = new Set(teacherSubjects.map((subject) => subject.toLowerCase()));
+    const previousSubjects = normalizeTeacherSubjectRecords(teacherUser.subjects);
+    const teacherSubjects = normalizeTeacherSubjectRecords(subjects);
+    const nextSubjectKeys = new Set(teacherSubjects.map((subject) => buildTeacherSubjectStorageKey(subject)));
     const now = new Date().toISOString();
     const updates = {
       [`users/${currentUser.uid}/subjects`]: teacherSubjects,
@@ -2451,9 +2527,9 @@ export const SchoolDataProvider = ({ children }) => {
     };
 
     previousSubjects
-      .filter((subject) => !nextSubjectNames.has(subject.toLowerCase()))
+      .filter((subject) => !nextSubjectKeys.has(buildTeacherSubjectStorageKey(subject)))
       .forEach((subject) => {
-        updates[`users/${currentUser.uid}/subjectClassIds/${buildSubjectKey(subject)}`] = null;
+        updates[`users/${currentUser.uid}/subjectClassIds/${buildTeacherSubjectStorageKey(subject)}`] = null;
       });
 
     setSavingTeacherId(currentUser.uid);
@@ -2467,20 +2543,25 @@ export const SchoolDataProvider = ({ children }) => {
     }
   };
 
-  const saveTeacherSubjectClasses = async ({ subjectName, classIds = [], subjectNames = [] }) => {
+  const saveTeacherSubjectClasses = async ({ subjectName, subjectCode = "", classIds = [], subjectNames = [] }) => {
     if (!currentUser || userData?.role !== "teacher") {
       throw new Error("Only teacher accounts can assign sections to their subjects.");
     }
 
     const normalizedSubjectName = String(subjectName || "").trim();
-    const subjectKey = buildSubjectKey(normalizedSubjectName);
+    const normalizedSubjectCode = String(subjectCode || "").trim().toUpperCase();
+    const subjectKey = buildTeacherSubjectStorageKey({
+      code: normalizedSubjectCode,
+      name: normalizedSubjectName
+    });
     const teacherUser = users.find((user) => user.id === currentUser.uid) || userData || {};
-    const teacherSubjects = normalizeTeacherSubjects([
+    const teacherSubjects = normalizeTeacherSubjectRecords([
       ...(Array.isArray(teacherUser.subjects) ? teacherUser.subjects : []),
       ...subjectNames
     ]);
     const canManageSubject = teacherSubjects.some((subject) => (
-      subject.toLowerCase() === normalizedSubjectName.toLowerCase()
+      (normalizedSubjectCode && subject.code.toUpperCase() === normalizedSubjectCode)
+      || subject.name.toLowerCase() === normalizedSubjectName.toLowerCase()
     ));
 
     if (!subjectKey || !canManageSubject) {
@@ -2513,19 +2594,21 @@ export const SchoolDataProvider = ({ children }) => {
     }
   };
 
-  const saveSubjectScores = async ({ studentId, subjectName, scores = {} }) => {
+  const saveSubjectScores = async ({ studentId, subjectName, subjectCode = "", scores = {} }) => {
     if (!currentUser || userData?.role !== "teacher") {
       throw new Error("Only teacher accounts can update subject scores.");
     }
 
     const normalizedSubjectName = String(subjectName || "").trim();
+    const normalizedSubjectCode = String(subjectCode || "").trim().toUpperCase();
     const teacherUser = users.find((user) => user.id === currentUser.uid) || userData || {};
-    const teacherSubjects = normalizeTeacherSubjects(teacherUser.subjects);
-    const canManageSubject = teacherSubjects.some((subject) => (
-      subject.toLowerCase() === normalizedSubjectName.toLowerCase()
-    ));
+    const teacherSubjectRecords = normalizeTeacherSubjectRecords(teacherUser.subjects);
+    const matchedTeacherSubject = normalizedSubjectCode
+      ? teacherSubjectRecords.find((subject) => subject.code.toUpperCase() === normalizedSubjectCode) || null
+      : teacherSubjectRecords.find((subject) => subject.name.toLowerCase() === normalizedSubjectName.toLowerCase()) || null;
+    const canManageSubject = Boolean(matchedTeacherSubject);
 
-    if (!normalizedSubjectName || !canManageSubject) {
+    if ((!normalizedSubjectName && !normalizedSubjectCode) || !canManageSubject) {
       throw new Error("Select one of your assigned subjects before saving scores.");
     }
 
@@ -2539,9 +2622,15 @@ export const SchoolDataProvider = ({ children }) => {
 
     const teacherName = userData?.displayName || userData?.name || userData?.email || currentUser.email || "Teacher";
     const existingSubjects = enrichedStudent.subjects || [];
-    const subjectIndex = existingSubjects.findIndex((subject) => (
-      String(subject.name || "").trim().toLowerCase() === normalizedSubjectName.toLowerCase()
-    ));
+    const resolvedSubjectName = matchedTeacherSubject?.name || normalizedSubjectName;
+    const resolvedSubjectCode = matchedTeacherSubject?.code || normalizedSubjectCode;
+    const subjectIndex = resolvedSubjectCode
+      ? existingSubjects.findIndex((subject) => (
+        String(subject.code || subject.subjectCode || "").trim().toUpperCase() === resolvedSubjectCode
+      ))
+      : existingSubjects.findIndex((subject) => (
+        String(subject.name || "").trim().toLowerCase() === resolvedSubjectName.toLowerCase()
+      ));
     const previousSubject = subjectIndex >= 0 ? existingSubjects[subjectIndex] : {};
     const gradeWeights = normalizeGradeWeights(scores.gradeWeights || previousSubject.gradeWeights);
     const quarters = normalizeQuarterScores(scores, previousSubject);
@@ -2552,8 +2641,9 @@ export const SchoolDataProvider = ({ children }) => {
       : null;
     const nextSubject = {
       ...previousSubject,
-      id: previousSubject.id || `subject-${buildSubjectKey(normalizedSubjectName)}`,
-      name: normalizedSubjectName,
+      id: previousSubject.id || `subject-${buildSubjectKey(resolvedSubjectCode || resolvedSubjectName)}`,
+      code: resolvedSubjectCode,
+      name: resolvedSubjectName,
       teacher: teacherName,
       gradeWeights,
       activities: quarters.q1.performanceTask.activities,

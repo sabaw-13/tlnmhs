@@ -152,6 +152,22 @@ const buildSubjectKey = (value) => String(value || "")
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-|-$/g, "");
+const getSubjectOptionLabel = (subject) => (
+  subject?.code ? `${subject.code} - ${subject.name}` : subject?.name || ""
+);
+const getSubjectSelectorValue = (subject) => subject?.code || subject?.name || "";
+const getSubjectStorageKey = (subject) => buildSubjectKey(subject?.code || subject?.name || subject || "");
+const isSameSubjectRecord = (leftSubject, rightSubject) => {
+  const leftCode = String(leftSubject?.code || leftSubject?.subjectCode || "").trim().toLowerCase();
+  const rightCode = String(rightSubject?.code || rightSubject?.subjectCode || "").trim().toLowerCase();
+
+  if (leftCode || rightCode) {
+    return Boolean(leftCode) && leftCode === rightCode;
+  }
+
+  return String(leftSubject?.name || leftSubject?.subject || leftSubject || "").trim().toLowerCase()
+    === String(rightSubject?.name || rightSubject?.subject || rightSubject || "").trim().toLowerCase();
+};
 
 const normalizeScoreArray = (value) => {
   if (Array.isArray(value)) return value.map((score) => normalizeStoredScoreEntry(score));
@@ -241,6 +257,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   } = useSchoolData();
   const [selectedClassId, setSelectedClassId] = useState("");
   const [managingStudent, setManagingStudent] = useState(null);
+  const [creatingStudent, setCreatingStudent] = useState(false);
   const [addingStudentToClass, setAddingStudentToClass] = useState(false);
   const [studentToAddId, setStudentToAddId] = useState("");
   const [attendanceDate, setAttendanceDate] = useState(getLocalDateValue);
@@ -249,7 +266,9 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const [noClassReason, setNoClassReason] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [showSubjectModal, setShowSubjectModal] = useState(false);
+  const [editingSubjectName, setEditingSubjectName] = useState("");
   const [subjectForm, setSubjectForm] = useState({
+    code: "",
     name: "",
     classIds: []
   });
@@ -281,19 +300,34 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   });
 
   const teacherProfile = teacherUsers.find((teacher) => teacher.id === currentUser?.uid) || null;
-  const handledSubjects = teacherProfile?.subjects || [];
+  const handledSubjects = teacherProfile?.subjectRecords || [];
+  const handledSubjectNames = handledSubjects.map((subject) => subject.name);
+  const handledSubjectSelectorValues = handledSubjects.map((subject) => getSubjectSelectorValue(subject));
+  const handledSubjectSignature = handledSubjects.map((subject) => `${subject.code}|${subject.name}`).join("||");
+  const getHandledSubjectRecord = (subjectName) => (
+    handledSubjects.find((subject) => {
+      const normalizedSubjectName = String(subjectName || "").trim().toLowerCase();
+      return subject.name.toLowerCase() === normalizedSubjectName
+        || String(subject.code || "").trim().toLowerCase() === normalizedSubjectName;
+    }) || null
+  );
   const advisoryClass = teacherClassReports.find((classroom) => classroom.id === teacherProfile?.advisoryClassId)
     || teacherClassReports[0]
     || null;
   const getSubjectClassMap = (subjectName) => {
-    const subjectKey = buildSubjectKey(subjectName);
+    const subjectRecord = getHandledSubjectRecord(subjectName);
+    const subjectKey = getSubjectStorageKey(subjectRecord || subjectName);
+    const legacySubjectKey = buildSubjectKey(subjectRecord?.name || subjectName);
 
     return subjectClassOverrides[subjectKey]
       || teacherProfile?.subjectClassIds?.[subjectKey]
+      || (!subjectRecord?.code
+        ? subjectClassOverrides[legacySubjectKey] || teacherProfile?.subjectClassIds?.[legacySubjectKey]
+        : null)
       || {};
   };
   const subjectAssignedClassIds = new Set(handledSubjects.flatMap((subject) => (
-    Object.entries(getSubjectClassMap(subject))
+    Object.entries(getSubjectClassMap(getSubjectSelectorValue(subject)))
       .filter(([, isSelected]) => isSelected)
       .map(([classId]) => classId)
   )));
@@ -339,6 +373,10 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const isDashboardSection = section === "dashboard" || section === "overview";
   const isClassScopedSection = section !== "subjects";
   const selectedSubjectClassMap = getSubjectClassMap(selectedSubjectName);
+  const selectedSubjectRecord = getHandledSubjectRecord(selectedSubjectName);
+  const selectedSubjectLabel = getSubjectOptionLabel(selectedSubjectRecord) || selectedSubjectName;
+  const selectedAttendanceSubjectRecord = getHandledSubjectRecord(selectedAttendanceSubjectName);
+  const selectedAttendanceSubjectLabel = getSubjectOptionLabel(selectedAttendanceSubjectRecord) || selectedAttendanceSubjectName;
   const selectedSubjectClassIds = Object.keys(selectedSubjectClassMap).filter((classId) => selectedSubjectClassMap[classId]);
   const selectedSubjectClasses = classReports.filter((classroom) => selectedSubjectClassIds.includes(classroom.id));
   const gradebookVisibleClassReports = selectedSubjectName
@@ -354,14 +392,23 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const studentRosterKey = students.map((student) => student.id).join("|");
   const selectedAttendanceRecord = selectedClass
     && selectedAttendanceSubjectName
-    ? getAttendanceRecord(selectedClass.id, attendanceDate, selectedAttendanceSubjectName)
+    ? getAttendanceRecord(
+      selectedClass.id,
+      attendanceDate,
+      selectedAttendanceSubjectRecord?.name || selectedAttendanceSubjectName,
+      selectedAttendanceSubjectRecord?.code || ""
+    )
     : null;
   const effectiveIsNoClassDay = isNoClassDay;
   const effectiveNoClassReason = effectiveIsNoClassDay
     ? String(noClassReason || "").trim() || (isWeekendAttendanceDate ? "Weekend" : "")
     : "";
   const selectedSubjectAttendanceRecords = selectedClass && selectedAttendanceSubjectName
-    ? getClassAttendanceRecords(selectedClass.id, selectedAttendanceSubjectName)
+    ? getClassAttendanceRecords(
+      selectedClass.id,
+      selectedAttendanceSubjectRecord?.name || selectedAttendanceSubjectName,
+      selectedAttendanceSubjectRecord?.code || ""
+    )
     : [];
   const sortedAttendanceReportRecords = [...selectedSubjectAttendanceRecords]
     .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")));
@@ -399,15 +446,15 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   useEffect(() => {
     if (section !== "attendance") return;
 
-    if (!handledSubjects.length) {
+    if (!handledSubjectSelectorValues.length) {
       setSelectedAttendanceSubjectName("");
       return;
     }
 
-    if (!selectedAttendanceSubjectName || !handledSubjects.includes(selectedAttendanceSubjectName)) {
-      setSelectedAttendanceSubjectName(handledSubjects[0]);
+    if (!selectedAttendanceSubjectName || !handledSubjectSelectorValues.includes(selectedAttendanceSubjectName)) {
+      setSelectedAttendanceSubjectName(handledSubjectSelectorValues[0]);
     }
-  }, [handledSubjects, section, selectedAttendanceSubjectName]);
+  }, [handledSubjectSelectorValues, handledSubjectSignature, section, selectedAttendanceSubjectName]);
 
   useEffect(() => {
     if (!saveMessage) return undefined;
@@ -424,7 +471,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   }, [selectedAttendanceSubjectName, selectedClassId]);
 
   useEffect(() => {
-    const subjects = teacherProfile?.subjects?.length ? teacherProfile.subjects : [];
+    const subjects = handledSubjectSelectorValues;
     if (!subjects.length) {
       setSelectedSubjectName("");
       return;
@@ -433,20 +480,21 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     if (!selectedSubjectName || !subjects.some((subject) => subject === selectedSubjectName)) {
       setSelectedSubjectName(subjects[0]);
     }
-  }, [teacherProfile?.subjects?.join("|"), selectedSubjectName]);
+  }, [handledSubjectSelectorValues, handledSubjectSignature, selectedSubjectName]);
 
   useEffect(() => {
     if (section !== "subjects") return;
 
     const requestedSubjectName = location.state?.selectedSubjectName;
     if (!requestedSubjectName) return;
-    if (!handledSubjects.includes(requestedSubjectName)) return;
+    if (!getHandledSubjectRecord(requestedSubjectName)) return;
     if (selectedSubjectName === requestedSubjectName) return;
 
     setSelectedSubjectName(requestedSubjectName);
     setSelectedSubjectClassId("");
     setSubjectScoreDrafts({});
-  }, [handledSubjects, location.state, section, selectedSubjectName]);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [handledSubjectSignature, location.pathname, location.state, navigate, section, selectedSubjectName]);
 
   useEffect(() => {
     const firstSubcategory = ASSESSMENT_SUBCATEGORIES[assessmentCategory]?.[0]?.key || "";
@@ -518,6 +566,38 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const currentActiveStudentFeeTarget = activeStudentFeeTarget
     ? students.find((student) => student.id === activeStudentFeeTarget.id) || activeStudentFeeTarget
     : null;
+  const handledSubjectAttendanceRates = handledSubjects.flatMap((subject) => {
+    const subjectValue = getSubjectSelectorValue(subject);
+    const classMap = getSubjectClassMap(subjectValue);
+    const classIds = Object.keys(classMap).filter((classId) => classMap[classId]);
+    const normalizedSubjectCode = String(subject.code || "").trim().toLowerCase();
+    const normalizedSubjectName = String(subject.name || "").trim().toLowerCase();
+
+    return allStudents
+      .filter((student) => student.id && student.classId && classIds.includes(student.classId))
+      .map((student) => {
+        const subjectRecord = (student.subjects || []).find((item) => (
+          normalizedSubjectCode
+            ? String(item.code || item.subjectCode || "").trim().toLowerCase() === normalizedSubjectCode
+            : String(item.name || "").trim().toLowerCase() === normalizedSubjectName
+        ));
+
+        return Number(subjectRecord?.attendanceRate);
+      })
+      .filter((attendanceRate) => Number.isFinite(attendanceRate));
+  });
+  const dashboardHandledAttendanceAverage = handledSubjectAttendanceRates.length
+    ? Number((handledSubjectAttendanceRates.reduce((sum, value) => sum + value, 0) / handledSubjectAttendanceRates.length).toFixed(1))
+    : null;
+  const dashboardAttendanceAverage = Number.isFinite(dashboardHandledAttendanceAverage)
+    ? `${dashboardHandledAttendanceAverage}%`
+    : "N/A";
+  const dashboardSectionCount = attendanceClassReports.length;
+  const canRenderTeacherWorkspace = sectionClassReports.length > 0
+    || isDashboardSection
+    || section === "attendance"
+    || section === "gradebook"
+    || section === "subjects";
   const studentFeeRows = students.map((student) => {
     const paidCount = advisoryFees.filter((fee) => fee?.payments?.[student.id]?.paid).length;
     const totalFees = advisoryFees.length;
@@ -594,26 +674,41 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     })
   ];
   const getStudentSubjectRecord = (student, subjectName) => {
+    const handledSubjectRecord = getHandledSubjectRecord(subjectName);
+    const normalizedTargetCode = String(handledSubjectRecord?.code || "").trim().toLowerCase();
+    const normalizedTargetName = String(handledSubjectRecord?.name || subjectName || "").trim().toLowerCase();
+
+    if (normalizedTargetCode) {
+      return student.subjects.find((subject) => (
+        String(subject.code || subject.subjectCode || "").trim().toLowerCase() === normalizedTargetCode
+      )) || null;
+    }
+
     return student.subjects.find((subject) => (
-      String(subject.name || "").trim().toLowerCase() === String(subjectName || "").trim().toLowerCase()
+      String(subject.name || "").trim().toLowerCase() === normalizedTargetName
     )) || null;
   };
-  const handledSubjectSummaries = handledSubjects.map((subjectName, index) => {
-    const classMap = getSubjectClassMap(subjectName);
+  const handledSubjectSummaries = handledSubjects.map((subject, index) => {
+    const subjectName = subject.name;
+    const subjectValue = getSubjectSelectorValue(subject);
+    const classMap = getSubjectClassMap(subjectValue);
     const classIds = Object.keys(classMap).filter((classId) => classMap[classId]);
     const subjectStudentsForSummary = allStudents.filter((student) => (
       student.id && student.classId && classIds.includes(student.classId)
     ));
     const subjectStudentCount = subjectStudentsForSummary.length;
     const averageSubjectGradeValues = subjectStudentsForSummary
-      .map((student) => getStudentSubjectRecord(student, subjectName)?.finalGrade)
+      .map((student) => getStudentSubjectRecord(student, subjectValue)?.finalGrade)
       .filter((grade) => Number.isFinite(grade));
     const averageSubjectGrade = averageSubjectGradeValues.length
       ? Number((averageSubjectGradeValues.reduce((sum, value) => sum + value, 0) / averageSubjectGradeValues.length).toFixed(1))
       : null;
 
     return {
+      subjectCode: subject.code,
       subjectName,
+      subjectValue,
+      subjectLabel: getSubjectOptionLabel(subject),
       studentCount: subjectStudentCount,
       sectionCount: classIds.length,
       averageGrade: averageSubjectGrade,
@@ -621,6 +716,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     };
   });
   const totalHandledSubjectStudents = handledSubjectSummaries.reduce((sum, item) => sum + item.studentCount, 0);
+  const dashboardStudentCount = advisoryClass?.students?.length ?? totalHandledSubjectStudents;
   let handledSubjectPieOffset = 0;
   const handledSubjectPieSegments = handledSubjectSummaries
     .filter((item) => item.studentCount > 0)
@@ -690,8 +786,16 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   };
 
   const openAddStudentModal = () => {
+    setCreatingStudent(true);
+    setManagingStudent(null);
+    setAddingStudentToClass(false);
+    setSaveMessage("");
+  };
+
+  const openAddExistingStudentModal = () => {
     setStudentToAddId(existingStudentOptions[0]?.id || "");
     setAddingStudentToClass(true);
+    setCreatingStudent(false);
     setSaveMessage("");
   };
 
@@ -713,12 +817,33 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   };
 
   const openSubjectModal = () => {
+    setEditingSubjectName("");
     setSubjectForm({
+      code: "",
       name: "",
       classIds: []
     });
     setShowSubjectModal(true);
     setSaveMessage("");
+  };
+  const openEditSubjectModal = () => {
+    const currentSubject = getHandledSubjectRecord(selectedSubjectName);
+    const classIds = Object.keys(getSubjectClassMap(selectedSubjectName)).filter((classId) => getSubjectClassMap(selectedSubjectName)[classId]);
+
+    if (!currentSubject) return;
+
+    setEditingSubjectName(getSubjectSelectorValue(currentSubject));
+    setSubjectForm({
+      code: currentSubject.code || "",
+      name: currentSubject.name,
+      classIds
+    });
+    setShowSubjectModal(true);
+    setSaveMessage("");
+  };
+  const closeSubjectModal = () => {
+    setShowSubjectModal(false);
+    setEditingSubjectName("");
   };
 
   const openFeeModal = () => {
@@ -771,9 +896,14 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
     if (section === "students" && teacherClassReports.length > 0) {
       setHeaderActions(
-        <button type="button" className="primary-btn" onClick={openAddStudentModal}>
-          Add Student
-        </button>
+        <div className="table-actions">
+          <button type="button" className="primary-btn" onClick={openAddStudentModal}>
+            Add Student
+          </button>
+          <button type="button" className="secondary-btn" onClick={openAddExistingStudentModal}>
+            Add Existing
+          </button>
+        </div>
       );
     } else if (section === "subjects") {
       setHeaderActions(
@@ -804,7 +934,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     setHeaderActions,
     advisoryClass?.id,
     teacherClassReports,
-    teacherProfile?.subjects?.join("|")
+    handledSubjectSignature
   ]);
 
   const handleSubjectFormClassToggle = (classId) => {
@@ -816,35 +946,71 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     }));
   };
 
-  const handleAddSubject = async (event) => {
+  const handleSubjectSubmit = async (event) => {
     event.preventDefault();
 
+    const subjectCode = subjectForm.code.trim().toUpperCase();
     const subjectName = subjectForm.name.trim();
+    const isEditingSubject = Boolean(editingSubjectName);
+
+    if (isEditingSubject) {
+      const editingSubject = getHandledSubjectRecord(editingSubjectName);
+
+      try {
+        const classMap = await saveTeacherSubjectClasses({
+          subjectName: editingSubject?.name || subjectForm.name,
+          subjectCode: editingSubject?.code || subjectForm.code,
+          classIds: subjectForm.classIds,
+          subjectNames: handledSubjects
+        });
+        setSubjectClassOverrides((currentOverrides) => ({
+          ...currentOverrides,
+          [getSubjectStorageKey(editingSubject || editingSubjectName)]: classMap
+        }));
+        closeSubjectModal();
+        setSaveMessage(`${getSubjectOptionLabel(editingSubject) || editingSubjectName} sections updated.`);
+      } catch (saveError) {
+        setSaveMessage(saveError?.message || "Subject sections could not be updated.");
+      }
+      return;
+    }
+
+    if (!subjectCode) {
+      setSaveMessage("Enter a subject code.");
+      return;
+    }
+
     if (!subjectName) {
       setSaveMessage("Enter a subject name.");
       return;
     }
 
+    if (handledSubjects.some((subject) => (
+      subject.name.toLowerCase() === subjectName.toLowerCase()
+      || (subject.code && subject.code.toLowerCase() === subjectCode.toLowerCase())
+    ))) {
+      setSaveMessage("That subject code or subject name is already assigned.");
+      return;
+    }
+
     try {
-      const nextSubjects = [...handledSubjects, subjectName]
-        .filter((subject, index, subjects) => (
-          subject.trim() && subjects.findIndex((item) => item.trim().toLowerCase() === subject.trim().toLowerCase()) === index
-        ));
+      const nextSubjects = [...handledSubjects, { code: subjectCode, name: subjectName }];
 
       await saveTeacherSubjects(nextSubjects);
       const classMap = await saveTeacherSubjectClasses({
         subjectName,
+        subjectCode,
         classIds: subjectForm.classIds,
         subjectNames: nextSubjects
       });
       setSubjectClassOverrides((currentOverrides) => ({
         ...currentOverrides,
-        [buildSubjectKey(subjectName)]: classMap
+        [getSubjectStorageKey({ code: subjectCode, name: subjectName })]: classMap
       }));
-      setSelectedSubjectName(subjectName);
+      setSelectedSubjectName(getSubjectSelectorValue({ code: subjectCode, name: subjectName }));
       setSubjectScoreDrafts({});
-      setShowSubjectModal(false);
-      setSaveMessage(`${subjectName} added.`);
+      closeSubjectModal();
+      setSaveMessage(`${subjectCode} - ${subjectName} added.`);
     } catch (saveError) {
       setSaveMessage(saveError?.message || "Subject could not be added.");
     }
@@ -1081,21 +1247,26 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
   const deleteSubject = async (subjectName) => {
     try {
-      const nextSubjects = handledSubjects.filter((subject) => subject.toLowerCase() !== subjectName.toLowerCase());
+      const targetSubject = getHandledSubjectRecord(subjectName);
+      if (!targetSubject) {
+        setSaveMessage("Subject could not be found.");
+        return;
+      }
+      const nextSubjects = handledSubjects.filter((subject) => !isSameSubjectRecord(subject, targetSubject));
 
       await saveTeacherSubjects(nextSubjects);
       setSubjectClassOverrides((currentOverrides) => {
         const nextOverrides = { ...currentOverrides };
-        delete nextOverrides[buildSubjectKey(subjectName)];
+        delete nextOverrides[getSubjectStorageKey(targetSubject)];
         return nextOverrides;
       });
       setSubjectScoreDrafts({});
 
-      if (selectedSubjectName.toLowerCase() === subjectName.toLowerCase()) {
-        setSelectedSubjectName(nextSubjects[0] || "");
+      if (selectedSubjectName.toLowerCase() === String(subjectName).toLowerCase()) {
+        setSelectedSubjectName(nextSubjects[0] ? getSubjectSelectorValue(nextSubjects[0]) : "");
       }
 
-      setSaveMessage(`${subjectName} deleted.`);
+      setSaveMessage(`${getSubjectOptionLabel(targetSubject) || targetSubject.name} deleted.`);
     } catch (saveError) {
       setSaveMessage(saveError?.message || "Subject could not be deleted.");
     }
@@ -1105,7 +1276,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     setConfirmState({
       action: "delete-subject",
       tone: "danger",
-      title: `Delete ${subjectName}?`,
+      title: `Delete ${getSubjectOptionLabel(getHandledSubjectRecord(subjectName)) || subjectName}?`,
       message: "This removes the subject from your handled subjects and clears its selected sections.",
       confirmLabel: "Delete Subject",
       cancelLabel: "Keep Subject",
@@ -1217,7 +1388,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
     setQuarterBreakdownModal({
       studentName: getStudentDisplayName(student),
-      subjectName: selectedSubjectName,
+      subjectName: selectedSubjectLabel,
       quarterLabel: quarter.label,
       quarterGrade: subjectRecord?.[quarter.key] ?? "N/A",
       quarterScores
@@ -1280,13 +1451,14 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       for (const student of subjectStudents) {
         await saveSubjectScores({
           studentId: student.id,
-          subjectName: selectedSubjectName,
+          subjectName: selectedSubjectRecord?.name || selectedSubjectName,
+          subjectCode: selectedSubjectRecord?.code || "",
           scores: buildSubjectScoresForSave(student)
         });
       }
 
       setSubjectScoreDrafts({});
-      setSaveMessage(`${selectedSubjectName} scores saved for ${subjectStudents.length} student${subjectStudents.length === 1 ? "" : "s"}.`);
+      setSaveMessage(`${selectedSubjectLabel} scores saved for ${subjectStudents.length} student${subjectStudents.length === 1 ? "" : "s"}.`);
     } catch (saveError) {
       setSaveMessage(saveError?.message || "Subject scores could not be saved.");
     } finally {
@@ -1333,7 +1505,8 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     await saveDailyAttendanceRecord({
       classId: selectedClass?.id,
       className: selectedClass?.name || selectedClass?.section || "",
-      subjectName: selectedAttendanceSubjectName,
+      subjectName: selectedAttendanceSubjectRecord?.name || selectedAttendanceSubjectName,
+      subjectCode: selectedAttendanceSubjectRecord?.code || "",
       date: attendanceDate,
       isNoClass: effectiveIsNoClassDay,
       noClassReason: effectiveNoClassReason,
@@ -1345,15 +1518,11 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     });
 
     setSaveMessage(effectiveIsNoClassDay
-      ? `${selectedAttendanceSubjectName} marked as no class on ${formatDateLabel(attendanceDate)}.`
-      : `${selectedAttendanceSubjectName} attendance saved for ${formatDateLabel(attendanceDate)}.`);
+      ? `${selectedAttendanceSubjectLabel} marked as no class on ${formatDateLabel(attendanceDate)}.`
+      : `${selectedAttendanceSubjectLabel} attendance saved for ${formatDateLabel(attendanceDate)}.`);
   };
 
   const handleSaveStudent = async (formData) => {
-    if (!managingStudent?.id) {
-      throw new Error("Teachers can only edit existing students.");
-    }
-
     const now = new Date().toISOString();
     const summaryParts = [];
 
@@ -1368,13 +1537,15 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     };
 
     await saveStudentRecord({
-      studentId: managingStudent?.id,
+      studentId: managingStudent?.id || null,
       payload: {
         ...formData,
-        classId: selectedClass?.id,
-        teacherId: selectedClass?.teacherId || selectedClass?.teacherUid || "",
-        teacherEmail: selectedClass?.teacherEmail || selectedClass?.adviserEmail || "",
+        classId: advisoryClass?.id || selectedClass?.id,
+        gradeLevel: advisoryClass?.gradeLevel || selectedClass?.gradeLevel || formData.gradeLevel,
+        teacherId: advisoryClass?.teacherId || advisoryClass?.teacherUid || selectedClass?.teacherId || selectedClass?.teacherUid || "",
+        teacherEmail: advisoryClass?.teacherEmail || advisoryClass?.adviserEmail || selectedClass?.teacherEmail || selectedClass?.adviserEmail || "",
         teacherName: classTeacherName,
+        subjects: formData.subjects || [],
         activities: [activityEntry, ...(Array.isArray(managingStudent?.raw?.activities)
           ? managingStudent.raw.activities
           : Object.values(managingStudent?.raw?.activities || {}))].slice(0, 6)
@@ -1382,7 +1553,8 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     });
 
     setManagingStudent(null);
-    setSaveMessage("Student record updated.");
+    setCreatingStudent(false);
+    setSaveMessage(managingStudent?.id ? "Student record updated." : "Student added to advisory section.");
   };
 
   const renderClassSelector = () => (
@@ -1410,8 +1582,8 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                   }}
                 >
                   {handledSubjects.map((subject) => (
-                    <option key={subject} value={subject}>
-                      {subject}
+                    <option key={`${subject.code}-${subject.name}`} value={getSubjectSelectorValue(subject)}>
+                      {getSubjectOptionLabel(subject)}
                     </option>
                   ))}
                 </select>
@@ -1442,6 +1614,15 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
             </div>
 
             <div className="subject-action-row">
+              {selectedSubjectName && (
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={openEditSubjectModal}
+                >
+                  Edit Sections
+                </button>
+              )}
               {selectedSubjectName && subjectStudents.length > 0 && (
                 <>
                   <button
@@ -1632,16 +1813,16 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
       {section !== "subjects" && section !== "attendance" && section !== "students" && section !== "gradebook" && section !== "fees" && !isDashboardSection && renderClassSelector()}
 
-      {section !== "attendance" && isClassScopedSection && !sectionClassReports.length && (
+      {["students", "fees"].includes(section) && !sectionClassReports.length && (
         <div className="empty-state">
-          <h3>{section === "attendance" ? "No Subject Sections" : "No Advisory"}</h3>
-          <p>{section === "attendance" ? "Add a subject and assign a section before taking attendance." : "Wait for an admin to assign your advisory section."}</p>
+          <h3>No Advisory</h3>
+          <p>Wait for an admin to assign your advisory section.</p>
         </div>
       )}
 
       {section === "subjects" && renderSubjectManager()}
 
-      {sectionClassReports.length > 0 && (
+      {canRenderTeacherWorkspace && (
         <>
 
       {isDashboardSection && (
@@ -1649,12 +1830,12 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
           <button
             type="button"
             className="stat-card stat-card-button"
-            onClick={() => navigate("/dashboard/students")}
+            onClick={() => navigate(advisoryClass ? "/dashboard/students" : "/dashboard/subjects")}
           >
-            <h4>Advisory Class</h4>
-            <p>{advisoryClass?.section || advisoryClass?.name || "N/A"}</p>
+            <h4>{advisoryClass ? "Advisory Class" : "Handled Subjects"}</h4>
+            <p>{advisoryClass?.section || advisoryClass?.name || handledSubjects.length || "N/A"}</p>
             <span className="stat-card-note">
-              {advisoryClass?.gradeLevel || "No advisory class assigned"}
+              {advisoryClass?.gradeLevel || `${dashboardSectionCount} linked section${dashboardSectionCount === 1 ? "" : "s"}`}
             </span>
           </button>
           <button
@@ -1663,15 +1844,15 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
             onClick={() => navigate("/dashboard/attendance")}
           >
             <h4>Attendance Average</h4>
-            <p>{Number.isFinite(selectedClass?.averageAttendance) ? `${selectedClass.averageAttendance}%` : "N/A"}</p>
+            <p>{dashboardAttendanceAverage}</p>
           </button>
           <button
             type="button"
             className="stat-card stat-card-button"
-            onClick={() => navigate("/dashboard/students")}
+            onClick={() => navigate(advisoryClass ? "/dashboard/students" : "/dashboard/gradebook")}
           >
-            <h4>Students in Section</h4>
-            <p>{students.length}</p>
+            <h4>{advisoryClass ? "Students in Section" : "Subject Students"}</h4>
+            <p>{dashboardStudentCount}</p>
           </button>
         </div>
       )}
@@ -1709,7 +1890,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                         <li key={item.subjectName} className="subject-pie-legend-item">
                           <span className="subject-pie-swatch" style={{ backgroundColor: item.color }} />
                           <div>
-                            <strong>{item.subjectName}</strong>
+                            <strong>{item.subjectLabel}</strong>
                             <p>{item.studentCount} student{item.studentCount === 1 ? "" : "s"}</p>
                           </div>
                         </li>
@@ -1723,7 +1904,8 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
               <div className="panel handled-subject-list-panel">
                 <div className="panel-header">
-                  <h3>Handled Subjects</h3>
+                  <h3>Subjects</h3>
+                  <span className="meta-badge">{handledSubjectSummaries.length} total</span>
                 </div>
                 {handledSubjectSummaries.length ? (
                   <div className="handled-subject-list">
@@ -1732,11 +1914,11 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                         key={item.subjectName}
                         type="button"
                         className="handled-subject-item"
-                        onClick={() => navigate("/dashboard/subjects", { state: { selectedSubjectName: item.subjectName } })}
+                        onClick={() => navigate("/dashboard/subjects", { state: { selectedSubjectName: item.subjectValue } })}
                       >
                         <span className="handled-subject-accent" style={{ backgroundColor: item.color }} />
                         <div className="handled-subject-copy">
-                          <strong>{item.subjectName}</strong>
+                          <strong>{item.subjectLabel}</strong>
                           <p>{item.studentCount} students | {item.sectionCount} sections</p>
                         </div>
                       </button>
@@ -1795,7 +1977,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                   <th>Student Number</th>
                   <th>Email</th>
                   <th>Attendance</th>
-                  <th>Status</th>
                   <th>Action</th>
                 </tr>
               </thead>
@@ -1806,7 +1987,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     <td data-label="Student Number">{student.studentNumber || "N/A"}</td>
                     <td data-label="Email">{student.email || "N/A"}</td>
                     <td data-label="Attendance">{student.attendanceLabel}</td>
-                    <td data-label="Status"><span className={`status-pill ${getStatusClassName(student.performanceStatus)}`}>{student.performanceStatus}</span></td>
                     <td data-label="Action">
                       <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
                         Edit
@@ -1816,7 +1996,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                 ))}
                 {students.length === 0 && (
                   <tr>
-                    <td colSpan="6">No students found for this section.</td>
+                    <td colSpan="5">No students found for this section.</td>
                   </tr>
                 )}
               </tbody>
@@ -1828,7 +2008,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       {section === "gradebook" && (
         <div className="panel">
           <div className="panel-header">
-            <h3>{selectedSubjectName ? `${selectedSubjectName} Gradebook` : "Section Gradebook"}</h3>
+            <h3>{selectedSubjectName ? `${selectedSubjectLabel} Gradebook` : "Section Gradebook"}</h3>
           </div>
           {handledSubjects.length ? (
             <>
@@ -1837,11 +2017,11 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                   <span>Subject</span>
                   <select
                     value={selectedSubjectName}
-                    onChange={(event) => setSelectedSubjectName(event.target.value)}
-                  >
-                    {handledSubjects.map((subject) => (
-                      <option key={subject} value={subject}>
-                        {subject}
+                  onChange={(event) => setSelectedSubjectName(event.target.value)}
+                >
+                  {handledSubjects.map((subject) => (
+                      <option key={`${subject.code}-${subject.name}`} value={getSubjectSelectorValue(subject)}>
+                        {getSubjectOptionLabel(subject)}
                       </option>
                     ))}
                   </select>
@@ -1967,7 +2147,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                 <div>
                   <h3>{formatDateLabel(attendanceDate)}</h3>
                   <p className="muted-text">
-                    Daily Attendance Sheet {selectedAttendanceSubjectName ? `- ${selectedAttendanceSubjectName}` : ""}{selectedClass ? ` - ${selectedClass?.name || selectedClass?.section || "Selected Section"}` : ""}
+                    Daily Attendance Sheet {selectedAttendanceSubjectName ? `- ${selectedAttendanceSubjectLabel}` : ""}{selectedClass ? ` - ${selectedClass?.name || selectedClass?.section || "Selected Section"}` : ""}
                   </p>
                 </div>
                 <span className="meta-badge">{students.length} students</span>
@@ -1979,11 +2159,11 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                   <span>Subject</span>
                   <select
                     value={selectedAttendanceSubjectName}
-                    onChange={(event) => setSelectedAttendanceSubjectName(event.target.value)}
+                  onChange={(event) => setSelectedAttendanceSubjectName(event.target.value)}
                   >
                     {attendanceSubjectOptions.map((subject) => (
-                      <option key={subject} value={subject}>
-                        {subject}
+                      <option key={`${subject.code}-${subject.name}`} value={getSubjectSelectorValue(subject)}>
+                        {getSubjectOptionLabel(subject)}
                       </option>
                     ))}
                   </select>
@@ -2033,10 +2213,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                       />
                     </label>
                   )}
-                </div>
-
-                {attendanceVisibleClassReports.length > 0 && (
-                  <div className="attendance-action-row">
+                  {attendanceVisibleClassReports.length > 0 && (
                     <button
                       type="button"
                       className="secondary-btn attendance-save-btn"
@@ -2044,8 +2221,8 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     >
                       View Report
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
 
               </div>
 
@@ -2125,7 +2302,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
               <div>
                 <h3>Attendance Report</h3>
                 <p className="muted-text">
-                  {selectedAttendanceSubjectName || "Subject"}{selectedClass ? ` - ${selectedClass.name || selectedClass.section || "Section"}` : ""}
+                  {selectedAttendanceSubjectLabel || "Subject"}{selectedClass ? ` - ${selectedClass.name || selectedClass.section || "Section"}` : ""}
                 </p>
               </div>
               <span className="meta-badge">{attendanceReportRows.length} student{attendanceReportRows.length === 1 ? "" : "s"}</span>
@@ -2483,17 +2660,30 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
         <div className="modal-overlay">
           <div className="modal-content">
             <div className="panel-header">
-              <h3>Add Subject</h3>
+              <h3>{editingSubjectName ? "Edit Subject Sections" : "Add Subject"}</h3>
             </div>
-            <form onSubmit={handleAddSubject}>
+            <form onSubmit={handleSubjectSubmit}>
+              <div className="form-group">
+                <label>Subject Code</label>
+                <input
+                  type="text"
+                  value={subjectForm.code}
+                  onChange={(event) => setSubjectForm({ ...subjectForm, code: event.target.value.toUpperCase() })}
+                  placeholder="Example: FIL7"
+                  required
+                  readOnly={Boolean(editingSubjectName)}
+                />
+              </div>
+
               <div className="form-group">
                 <label>Subject Name</label>
                 <input
                   type="text"
                   value={subjectForm.name}
                   onChange={(event) => setSubjectForm({ ...subjectForm, name: event.target.value })}
-                  placeholder="Example: Mathematics"
+                  placeholder="Example: Filipino"
                   required
+                  readOnly={Boolean(editingSubjectName)}
                 />
               </div>
 
@@ -2518,9 +2708,9 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
 
               <div className="modal-actions">
                 <button type="submit" className="primary-btn" disabled={savingTeacherId === currentUser?.uid}>
-                  {savingTeacherId === currentUser?.uid ? "Saving..." : "Add Subject"}
+                  {savingTeacherId === currentUser?.uid ? "Saving..." : editingSubjectName ? "Save Sections" : "Add Subject"}
                 </button>
-                <button type="button" className="secondary-btn" onClick={() => setShowSubjectModal(false)}>
+                <button type="button" className="secondary-btn" onClick={closeSubjectModal}>
                   Cancel
                 </button>
               </div>
@@ -2651,6 +2841,23 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
           saving={Boolean(savingStudentId)}
           submitLabel="Save Changes"
           onClose={() => setManagingStudent(null)}
+          onSubmit={handleSaveStudent}
+        />
+      )}
+      {creatingStudent && (
+        <StudentRecordModal
+          title="Add Student"
+          student={null}
+          gradeLevelOptions={gradeLevels}
+          defaultClassId={advisoryClass?.id || selectedClass?.id || ""}
+          defaultTeacherId={advisoryClass?.teacherId || advisoryClass?.teacherUid || selectedClass?.teacherId || selectedClass?.teacherUid || ""}
+          defaultTeacherName={classTeacherName}
+          defaultGradeLevel={advisoryClass?.gradeLevel || selectedClass?.gradeLevel || ""}
+          accountFieldsOnly
+          showAcademicFields={false}
+          saving={Boolean(savingStudentId)}
+          submitLabel="Add Student"
+          onClose={() => setCreatingStudent(false)}
           onSubmit={handleSaveStudent}
         />
       )}
