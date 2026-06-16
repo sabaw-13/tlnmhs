@@ -93,11 +93,6 @@ const HEADER_COPY = {
       title: "Attendance Tracker",
       description: "Record daily and monthly attendance for your subject sections."
     },
-    gradebook: {
-      eyebrow: "Gradebook",
-      title: "Gradebook",
-      description: "Update quarterly scores and final subject grades."
-    },
     fees: {
       eyebrow: "Fee",
       title: "Fee Manager",
@@ -255,7 +250,6 @@ const Dashboard = () => {
         { path: "/dashboard/students", label: "Students", icon: <Users size={19} /> },
         { path: "/dashboard/subjects", label: "Subjects", icon: <BookOpen size={19} /> },
         { path: "/dashboard/attendance", label: "Attendance", icon: <CalendarCheck size={19} /> },
-        { path: "/dashboard/gradebook", label: "Gradebook", icon: <ClipboardCheck size={19} /> },
         { path: "/dashboard/fees", label: "Fee", icon: <Receipt size={19} /> },
         settingsItem
       ];
@@ -311,7 +305,7 @@ const Dashboard = () => {
             <Route path="students" element={<TeacherView section="students" setHeaderActions={setHeaderActions} />} />
             <Route path="subjects" element={<TeacherView section="subjects" setHeaderActions={setHeaderActions} />} />
             <Route path="attendance" element={<TeacherView section="attendance" setHeaderActions={setHeaderActions} />} />
-            <Route path="gradebook" element={<TeacherView section="gradebook" setHeaderActions={setHeaderActions} />} />
+            <Route path="gradebook" element={<Navigate to="/dashboard/subjects" replace />} />
             <Route path="fees" element={<TeacherView section="fees" setHeaderActions={setHeaderActions} />} />
             <Route path="reports" element={<Navigate to="/dashboard" replace />} />
           </>

@@ -366,7 +366,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     students: "Student Manager",
     subjects: "Subjects",
     attendance: "Attendance",
-    gradebook: "Gradebook",
     fees: "Fee Manager",
     reports: "Reports"
   };
@@ -379,14 +378,9 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const selectedAttendanceSubjectLabel = getSubjectOptionLabel(selectedAttendanceSubjectRecord) || selectedAttendanceSubjectName;
   const selectedSubjectClassIds = Object.keys(selectedSubjectClassMap).filter((classId) => selectedSubjectClassMap[classId]);
   const selectedSubjectClasses = classReports.filter((classroom) => selectedSubjectClassIds.includes(classroom.id));
-  const gradebookVisibleClassReports = selectedSubjectName
-    ? selectedSubjectClasses
-    : teacherClassReports;
   const sectionClassReports = section === "attendance"
     ? attendanceVisibleClassReports
-    : section === "gradebook"
-      ? gradebookVisibleClassReports
-      : teacherClassReports;
+    : teacherClassReports;
   const selectedClass = sectionClassReports.find((classroom) => classroom.id === selectedClassId) || sectionClassReports[0] || null;
   const students = selectedClass?.students || [];
   const studentRosterKey = students.map((student) => student.id).join("|");
@@ -596,7 +590,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const canRenderTeacherWorkspace = sectionClassReports.length > 0
     || isDashboardSection
     || section === "attendance"
-    || section === "gradebook"
     || section === "subjects";
   const studentFeeRows = students.map((student) => {
     const paidCount = advisoryFees.filter((fee) => fee?.payments?.[student.id]?.paid).length;
@@ -1811,7 +1804,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       {error && <div className="error-container">{error}</div>}
       {saveMessage && <div className="feedback-toast success-banner">{saveMessage}</div>}
 
-      {section !== "subjects" && section !== "attendance" && section !== "students" && section !== "gradebook" && section !== "fees" && !isDashboardSection && renderClassSelector()}
+      {section !== "subjects" && section !== "attendance" && section !== "students" && section !== "fees" && !isDashboardSection && renderClassSelector()}
 
       {["students", "fees"].includes(section) && !sectionClassReports.length && (
         <div className="empty-state">
@@ -1849,7 +1842,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
           <button
             type="button"
             className="stat-card stat-card-button"
-            onClick={() => navigate(advisoryClass ? "/dashboard/students" : "/dashboard/gradebook")}
+            onClick={() => navigate(advisoryClass ? "/dashboard/students" : "/dashboard/subjects")}
           >
             <h4>{advisoryClass ? "Students in Section" : "Subject Students"}</h4>
             <p>{dashboardStudentCount}</p>
@@ -2003,85 +1996,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
             </table>
           </div>
         </>
-      )}
-
-      {section === "gradebook" && (
-        <div className="panel">
-          <div className="panel-header">
-            <h3>{selectedSubjectName ? `${selectedSubjectLabel} Gradebook` : "Section Gradebook"}</h3>
-          </div>
-          {handledSubjects.length ? (
-            <>
-              <div className="table-filter-bar">
-                <label className="selector-field gradebook-subject-field">
-                  <span>Subject</span>
-                  <select
-                    value={selectedSubjectName}
-                  onChange={(event) => setSelectedSubjectName(event.target.value)}
-                >
-                  {handledSubjects.map((subject) => (
-                      <option key={`${subject.code}-${subject.name}`} value={getSubjectSelectorValue(subject)}>
-                        {getSubjectOptionLabel(subject)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Quarter 1</th>
-                    <th>Quarter 2</th>
-                    <th>Quarter 3</th>
-                    <th>Quarter 4</th>
-                    <th>Attendance</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((student) => {
-                    const subjectRecord = getStudentSubjectRecord(student, selectedSubjectName);
-
-                    return (
-                      <tr key={student.id}>
-                        <td data-label="Name">{getStudentDisplayName(student)}</td>
-                        {QUARTER_OPTIONS.map((quarter) => (
-                          <td key={quarter.key} data-label={quarter.label}>
-                            {subjectRecord ? (
-                              <button
-                                type="button"
-                                className="quarter-grade-trigger"
-                                onClick={() => openQuarterBreakdownModal(student, subjectRecord, quarter)}
-                              >
-                                {subjectRecord?.[quarter.key] ?? "N/A"}
-                              </button>
-                            ) : (
-                              "N/A"
-                            )}
-                          </td>
-                        ))}
-                        <td data-label="Attendance">{subjectRecord?.attendanceLabel || student.attendanceLabel || "N/A"}</td>
-                        <td data-label="Action">
-                          <button className="secondary-btn" type="button" onClick={() => openStudentModal(student)}>
-                            {savingStudentId === student.id ? "Saving..." : "Edit"}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {students.length === 0 && (
-                    <tr>
-                      <td colSpan="7">No students found for this subject section.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </>
-          ) : (
-            <p className="empty-copy">No handled subjects available yet.</p>
-          )}
-        </div>
       )}
 
       {section === "fees" && (

@@ -144,11 +144,6 @@
   flex: 1 1 220px;
 }
 
-.table-filter-bar .gradebook-subject-field {
-  flex: 0 1 180px;
-  max-width: 180px;
-}
-
 .student-filter-bar {
   display: grid;
   grid-template-columns: minmax(260px, 1.4fr) repeat(2, minmax(160px, 0.75fr)) auto;
