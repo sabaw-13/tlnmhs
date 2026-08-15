@@ -13,8 +13,6 @@ const buildInitialFormState = ({
   name: student?.name || "",
   email: student?.email || "",
   studentNumber: student?.studentNumber || student?.raw?.studentNumber || "",
-  parentName: student?.parentName || "",
-  parentId: student?.parentId || "",
   gradeLevel: student?.gradeLevel || student?.raw?.gradeLevel || defaultGradeLevel,
   classId: student?.classId || defaultClassId,
   teacherId: student?.raw?.teacherId || defaultTeacherId,
@@ -30,8 +28,6 @@ const normalizeStudentFormState = (formState) => ({
   name: formState.name.trim(),
   email: formState.email.trim(),
   studentNumber: formState.studentNumber.trim(),
-  parentName: formState.parentName.trim(),
-  parentId: formState.parentId.trim(),
   gradeLevel: formState.gradeLevel,
   classId: formState.classId,
   teacherId: formState.teacherId,
@@ -177,32 +173,6 @@ const StudentRecordModal = ({
                 required={requireAccountFields && !student}
               />
             </div>
-
-            {!accountFieldsOnly && (
-              <>
-                <div className="form-group">
-                  <label>Parent Name</label>
-                  <input
-                    type="text"
-                    value={formData.parentName}
-                    onChange={(event) => setFormData({ ...formData, parentName: event.target.value })}
-                    placeholder="Parent or guardian"
-                    disabled={lockIdentityFields}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Parent ID</label>
-                  <input
-                    type="text"
-                    value={formData.parentId}
-                    onChange={(event) => setFormData({ ...formData, parentId: event.target.value })}
-                    placeholder="Linked parent UID"
-                    disabled={lockIdentityFields}
-                  />
-                </div>
-              </>
-            )}
 
             {showClassSelector && (
               <div className="form-group">

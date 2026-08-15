@@ -6,13 +6,16 @@ import {
   buildClassReport,
   buildRepositorySummary,
   buildStudentRecord,
+  calculateFinalGrade,
+  calculateQuarterGrade,
   clamp,
+  createDefaultQuarterScores,
   computePerformanceStatus,
   formatPersonName,
   formatShortDate,
   normalizeCollection,
-  normalizeStoredScoreEntry,
-  parseScoreEntry,
+  normalizeGradeWeights,
+  normalizeQuarterScores,
   toNumber
 } from "../utils/reporting";
 import { createManagedAccount, deleteManagedAccount, updateManagedAccount } from "../utils/adminAccounts";
@@ -21,12 +24,7 @@ const SchoolDataContext = createContext();
 const ATTENDED_ATTENDANCE_STATUSES = new Set(["present", "late", "excused"]);
 const CLASS_CODE_LENGTH = 6;
 const DEFAULT_GRADE_LEVEL_OPTIONS = ["Grade 7", "Grade 8", "Grade 9", "Grade 10"];
-const QUARTER_KEYS = ["q1", "q2", "q3", "q4"];
-const DEFAULT_GRADE_WEIGHTS = {
-  writtenWork: 30,
-  performanceTask: 50,
-  finalExam: 20
-};
+const TERM_KEYS = ["q1", "q2", "q3"];
 
 const normalizeLookupValue = (value) => String(value || "").trim().toLowerCase();
 
@@ -84,119 +82,6 @@ const buildTeacherSubjectStorageKey = (subject) => {
   }
 
   return buildSubjectKey(subject);
-};
-
-const SCORE_ENTRY_KEYS = ["score", "earned", "value", "points", "total", "maxScore", "max", "over"];
-const isScoreEntryObject = (value) => (
-  Boolean(value)
-  && typeof value === "object"
-  && !Array.isArray(value)
-  && SCORE_ENTRY_KEYS.some((key) => Object.prototype.hasOwnProperty.call(value, key))
-);
-
-const normalizeScoreList = (value) => {
-  const trimTrailingBlanks = (scores) => {
-    const nextScores = [...scores];
-
-    while (nextScores.length && nextScores[nextScores.length - 1] === "") {
-      nextScores.pop();
-    }
-
-    return nextScores;
-  };
-
-  if (Array.isArray(value)) {
-    return trimTrailingBlanks(value.map(normalizeStoredScoreEntry));
-  }
-
-  if (value && typeof value === "object") {
-    if (isScoreEntryObject(value)) {
-      return trimTrailingBlanks([normalizeStoredScoreEntry(value)]);
-    }
-
-    return trimTrailingBlanks(Object.values(value).map(normalizeStoredScoreEntry));
-  }
-
-  if (typeof value === "string" && value.includes(",")) {
-    return trimTrailingBlanks(value.split(",").map(normalizeStoredScoreEntry));
-  }
-
-  const score = normalizeStoredScoreEntry(value);
-  return score ? [score] : [];
-};
-
-const averageScores = (values = []) => {
-  const scores = normalizeScoreList(values)
-    .map((value) => parseScoreEntry(value)?.numericValue)
-    .filter((value) => Number.isFinite(value));
-  if (!scores.length) return null;
-
-  return scores.reduce((sum, value) => sum + value, 0) / scores.length;
-};
-
-const normalizeGradeWeights = (weights = {}) => ({
-  writtenWork: Math.max(0, toNumber(weights.writtenWork) ?? DEFAULT_GRADE_WEIGHTS.writtenWork),
-  performanceTask: Math.max(0, toNumber(weights.performanceTask) ?? DEFAULT_GRADE_WEIGHTS.performanceTask),
-  finalExam: Math.max(0, toNumber(weights.finalExam) ?? DEFAULT_GRADE_WEIGHTS.finalExam)
-});
-
-const calculateWeightedQuarterGrade = (quarterScores = {}, weights = DEFAULT_GRADE_WEIGHTS) => {
-  const normalizedWeights = normalizeGradeWeights(weights);
-  const categoryScores = [
-    {
-      score: averageScores([
-        ...(quarterScores.writtenWork?.quizzes || []),
-        ...(quarterScores.writtenWork?.longTests || [])
-      ]),
-      weight: normalizedWeights.writtenWork
-    },
-    {
-      score: averageScores([
-        ...(quarterScores.performanceTask?.projects || []),
-        ...(quarterScores.performanceTask?.activities || [])
-      ]),
-      weight: normalizedWeights.performanceTask
-    },
-    {
-      score: averageScores(quarterScores.finalExam?.exams || []),
-      weight: normalizedWeights.finalExam
-    }
-  ].filter((item) => Number.isFinite(item.score) && item.weight > 0);
-  const totalWeight = categoryScores.reduce((sum, item) => sum + item.weight, 0);
-  if (!totalWeight) return null;
-
-  return Number((categoryScores.reduce((sum, item) => sum + (item.score * item.weight), 0) / totalWeight).toFixed(1));
-};
-
-const normalizeQuarterScores = (subject = {}, fallbackSubject = {}) => {
-  const sourceQuarters = subject.quarters && typeof subject.quarters === "object" ? subject.quarters : {};
-  const fallbackQuarters = fallbackSubject.quarters && typeof fallbackSubject.quarters === "object" ? fallbackSubject.quarters : {};
-
-  return QUARTER_KEYS.reduce((quarters, quarterKey, index) => {
-    const sourceQuarter = sourceQuarters[quarterKey] || sourceQuarters[`quarter${index + 1}`] || {};
-    const fallbackQuarter = fallbackQuarters[quarterKey] || fallbackQuarters[`quarter${index + 1}`] || {};
-    const legacyScores = index === 0 ? {
-      activities: subject.activities ?? fallbackSubject.activities,
-      quizzes: subject.quizzes ?? fallbackSubject.quizzes,
-      exams: subject.exams ?? fallbackSubject.exams
-    } : {};
-
-    quarters[quarterKey] = {
-      writtenWork: {
-        quizzes: normalizeScoreList(sourceQuarter.writtenWork?.quizzes ?? fallbackQuarter.writtenWork?.quizzes ?? sourceQuarter.quizzes ?? fallbackQuarter.quizzes ?? legacyScores.quizzes),
-        longTests: normalizeScoreList(sourceQuarter.writtenWork?.longTests ?? fallbackQuarter.writtenWork?.longTests)
-      },
-      performanceTask: {
-        projects: normalizeScoreList(sourceQuarter.performanceTask?.projects ?? fallbackQuarter.performanceTask?.projects),
-        activities: normalizeScoreList(sourceQuarter.performanceTask?.activities ?? fallbackQuarter.performanceTask?.activities ?? sourceQuarter.activities ?? fallbackQuarter.activities ?? legacyScores.activities)
-      },
-      finalExam: {
-        exams: normalizeScoreList(sourceQuarter.finalExam?.exams ?? fallbackQuarter.finalExam?.exams ?? sourceQuarter.exams ?? fallbackQuarter.exams ?? legacyScores.exams)
-      }
-    };
-
-    return quarters;
-  }, {});
 };
 
 const buildGeneratedStudentEmail = (studentNumber, rowIndex, variant = 0) => {
@@ -867,16 +752,6 @@ export const SchoolDataProvider = ({ children }) => {
       const normalizedSubjects = (payload.subjects || [])
         .filter((subject) => subject.name?.trim())
         .map((subject, index) => {
-          const quarterGrades = [
-            toNumber(subject.q1),
-            toNumber(subject.q2),
-            toNumber(subject.q3),
-            toNumber(subject.q4)
-          ].filter((grade) => Number.isFinite(grade));
-          const finalGrade = quarterGrades.length
-            ? Number((quarterGrades.reduce((sum, grade) => sum + grade, 0) / quarterGrades.length).toFixed(1))
-            : null;
-
           const existingSubject = existingStudent?.subjects
             ? (Array.isArray(existingStudent.subjects)
               ? existingStudent.subjects
@@ -891,6 +766,10 @@ export const SchoolDataProvider = ({ children }) => {
             : null;
           const quarters = normalizeQuarterScores(subject, existingSubject || {});
           const gradeWeights = normalizeGradeWeights(subject.gradeWeights || existingSubject?.gradeWeights);
+          const q1 = toNumber(subject.q1) ?? calculateQuarterGrade(quarters.q1, gradeWeights);
+          const q2 = toNumber(subject.q2) ?? calculateQuarterGrade(quarters.q2, gradeWeights);
+          const q3 = toNumber(subject.q3) ?? calculateQuarterGrade(quarters.q3, gradeWeights);
+          const finalGrade = calculateFinalGrade([q1, q2, q3]);
 
           return {
             id: subject.id || `subject-${index + 1}`,
@@ -901,10 +780,9 @@ export const SchoolDataProvider = ({ children }) => {
             quizzes: quarters.q1.writtenWork.quizzes,
             exams: quarters.q1.finalExam.exams,
             quarters,
-            q1: toNumber(subject.q1),
-            q2: toNumber(subject.q2),
-            q3: toNumber(subject.q3),
-            q4: toNumber(subject.q4),
+            q1,
+            q2,
+            q3,
             finalGrade,
             attendanceRate,
             attendanceLabel: attendanceRate === null ? "N/A" : `${attendanceRate}%`,
@@ -925,6 +803,13 @@ export const SchoolDataProvider = ({ children }) => {
       const oldClassId = existingStudent?.classId || existingStudent?.classKey || existingStudent?.sectionId || null;
       const nextClassId = resolvedClassId;
       const nextAttendanceLabel = attendanceRate === null ? "" : `${attendanceRate}%`;
+      const existingParent = existingStudent?.parentId
+        ? users.find((user) => user.id === existingStudent.parentId && user.role === "parent") || null
+        : null;
+      const existingParentId = existingParent?.id || null;
+      const existingParentName = existingParent
+        ? existingStudent?.parentName || existingParent.displayName || existingParent.name || ""
+        : "";
       const updates = {
         [`students/${targetStudentId}`]: {
           ...existingStudentData,
@@ -934,8 +819,8 @@ export const SchoolDataProvider = ({ children }) => {
           middleInitial: trimmedMiddleInitial || existingStudent?.middleInitial || "",
           email: trimmedStudentEmail,
           studentNumber: trimmedStudentNumber || existingStudent?.studentNumber || "",
-          parentName: payload.parentName?.trim() || "",
-          parentId: payload.parentId?.trim() || null,
+          parentName: existingParentName,
+          parentId: existingParentId,
           gradeLevel: normalizedStudentGradeLevel,
           classId: nextClassId,
           className: classroom?.name || classroom?.section || payload.className || "",
@@ -965,8 +850,6 @@ export const SchoolDataProvider = ({ children }) => {
           role: "student",
           studentId: targetStudentId,
           studentNumber: trimmedStudentNumber || existingUser?.studentNumber || "",
-          parentId: payload.parentId?.trim() || null,
-          parentName: payload.parentName?.trim() || "",
           gradeLevel: normalizedStudentGradeLevel,
           classId: nextClassId,
           className: classroom?.name || classroom?.section || payload.className || "",
@@ -2633,12 +2516,12 @@ export const SchoolDataProvider = ({ children }) => {
       ));
     const previousSubject = subjectIndex >= 0 ? existingSubjects[subjectIndex] : {};
     const gradeWeights = normalizeGradeWeights(scores.gradeWeights || previousSubject.gradeWeights);
-    const quarters = normalizeQuarterScores(scores, previousSubject);
-    const quarterValues = QUARTER_KEYS.map((quarterKey) => calculateWeightedQuarterGrade(quarters[quarterKey], gradeWeights));
-    const quarterGrades = quarterValues.filter((grade) => Number.isFinite(grade));
-    const finalGrade = quarterGrades.length
-      ? Number((quarterGrades.reduce((sum, grade) => sum + grade, 0) / quarterGrades.length).toFixed(1))
-      : null;
+    const quarters = normalizeQuarterScores(
+      { ...scores, quarters: scores.quarters || createDefaultQuarterScores() },
+      previousSubject
+    );
+    const quarterValues = TERM_KEYS.map((quarterKey) => calculateQuarterGrade(quarters[quarterKey], gradeWeights));
+    const finalGrade = calculateFinalGrade(quarterValues);
     const nextSubject = {
       ...previousSubject,
       id: previousSubject.id || `subject-${buildSubjectKey(resolvedSubjectCode || resolvedSubjectName)}`,
@@ -2653,7 +2536,6 @@ export const SchoolDataProvider = ({ children }) => {
       q1: quarterValues[0],
       q2: quarterValues[1],
       q3: quarterValues[2],
-      q4: quarterValues[3],
       finalGrade,
       status: finalGrade !== null && finalGrade >= 75 ? "Passed" : "Needs Attention"
     };

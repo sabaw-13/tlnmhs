@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
-import { normalizeStoredScoreEntry } from "../utils/reporting";
+import { normalizeStoredScoreEntry, TERM_OPTIONS as QUARTER_OPTIONS } from "../utils/reporting";
 import {
   formatSubjectAttendanceAverage,
   getCurrentStudentSubjects,
@@ -10,12 +10,6 @@ import {
 import "./TeacherDashboard.css";
 
 const getStatusClassName = (value) => String(value || "N/A").toLowerCase().replace(/\s+/g, "-");
-const QUARTER_OPTIONS = [
-  { key: "q1", label: "Q1" },
-  { key: "q2", label: "Q2" },
-  { key: "q3", label: "Q3" },
-  { key: "q4", label: "Q4" }
-];
 const SUBJECT_PANEL_COLORS = [
   "#2563eb",
   "#14b8a6",
@@ -435,10 +429,9 @@ const ParentView = ({ section = "overview" }) => {
               <tr>
                 <th>Subject</th>
                 <th>Teacher</th>
-                <th>Quarter 1</th>
-                <th>Quarter 2</th>
-                <th>Quarter 3</th>
-                <th>Quarter 4</th>
+                {QUARTER_OPTIONS.map((quarter) => (
+                  <th key={quarter.key}>{quarter.label}</th>
+                ))}
                 <th>Final Grade</th>
                 <th>Attendance</th>
               </tr>
@@ -465,7 +458,7 @@ const ParentView = ({ section = "overview" }) => {
               ))}
               {visibleSubjects.length === 0 && (
                 <tr>
-                  <td colSpan="8">No grade records available yet.</td>
+                  <td colSpan={QUARTER_OPTIONS.length + 4}>No grade records available yet.</td>
                 </tr>
               )}
             </tbody>
