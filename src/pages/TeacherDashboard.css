@@ -1512,6 +1512,58 @@
   align-items: end;
 }
 
+.gradebook-sheet-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--surface-panel-start) 0%, var(--surface-panel-end) 100%);
+  box-shadow: var(--shadow-sm);
+}
+
+.gradebook-sheet-toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 0.625rem;
+  align-items: end;
+}
+
+.gradebook-toolbar-field {
+  min-width: 0;
+}
+
+.gradebook-toolbar-field span {
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.66rem;
+}
+
+.gradebook-toolbar-field select {
+  min-height: 40px;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  border-color: var(--border);
+  background: var(--input-bg);
+  color: var(--text-main);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.gradebook-sheet-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.gradebook-sheet-summary .meta-badge {
+  min-height: 1.65rem;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.68rem;
+}
+
 .subject-summary-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1608,9 +1660,75 @@
 .subject-section-panel {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
+  gap: 0.45rem;
+  padding-top: 0.4rem;
   border-top: 1px solid var(--border);
+}
+
+.class-record-group-toggle {
+  width: 100%;
+  border: 0;
+  background: var(--gradebook-toggle-bg);
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 2px solid transparent;
+  transition: background var(--transition), color var(--transition), box-shadow var(--transition), border-color var(--transition);
+}
+
+.class-record-group-toggle.is-expanded {
+  color: var(--gradebook-toggle-active-text);
+}
+
+.class-record-group-cell {
+  background: var(--gradebook-group-bg);
+  transition: background var(--transition), box-shadow var(--transition);
+}
+
+.class-record-group-cell.is-active {
+  background: var(--gradebook-group-active-bg);
+  box-shadow: inset 0 -1px 0 var(--gradebook-group-active-bg);
+}
+
+.class-record-group-toggle:hover {
+  background: var(--gradebook-toggle-hover-bg);
+}
+
+.class-record-group-toggle.is-expanded,
+.class-record-group-toggle:focus-visible {
+  background: var(--gradebook-toggle-active-bg);
+  border-bottom-color: var(--gradebook-toggle-accent);
+  box-shadow: 0 0 0 2px var(--gradebook-toggle-ring);
+  outline: none;
+}
+
+.class-record-group-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.class-record-group-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.class-record-group-weight {
+  color: var(--gradebook-toggle-accent);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 /* ─── Score column toolbar ───────────────────────────────── */
@@ -1656,7 +1774,7 @@
   width: 100%;
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: 12px;
   background: var(--surface-elevated);
 }
 
@@ -1671,8 +1789,7 @@
   white-space: nowrap;
 }
 
-.subject-score-table th:first-child,
-.subject-score-table td:first-child {
+.subject-score-table .class-record-student-col {
   position: sticky;
   left: 0;
   z-index: 2;
@@ -1681,7 +1798,7 @@
   background: var(--surface-elevated);
 }
 
-.subject-score-table th:first-child {
+.subject-score-table th.class-record-student-col {
   z-index: 3;
   background: var(--table-head-bg);
 }
@@ -1733,6 +1850,174 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-ring);
   outline: none;
+}
+
+.class-record-table {
+  border-collapse: collapse;
+  min-width: 1100px;
+}
+
+.class-record-table th,
+.class-record-table td {
+  padding: 0.2rem 0.24rem;
+  border: 1px solid var(--border);
+  font-size: 0.68rem;
+  line-height: 1.1;
+}
+
+.class-record-table thead th {
+  background: var(--table-head-bg);
+  color: var(--table-head-text);
+  font-weight: 800;
+}
+
+.class-record-table .class-record-meta-row th {
+  background: var(--gradebook-meta-bg);
+  color: var(--gradebook-meta-text);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-align: center;
+  font-size: 0.62rem;
+}
+
+.class-record-table .class-record-group-row th,
+.class-record-table .class-record-subheader-row th,
+.class-record-table .class-record-reference-row td {
+  text-align: center;
+}
+
+.class-record-table .class-record-reference-row td {
+  background: var(--gradebook-reference-bg);
+  color: var(--gradebook-reference-text);
+  font-weight: 700;
+}
+
+.class-record-table .class-record-category-head.is-active,
+.class-record-table .class-record-category-cell.is-active {
+  background: var(--gradebook-active-cell-bg);
+}
+
+.class-record-table .class-record-category-head,
+.class-record-table .class-record-category-cell {
+  width: 46px;
+  min-width: 46px;
+  max-width: 46px;
+}
+
+.class-record-table .class-record-category-total {
+  font-weight: 800;
+  width: 54px;
+  min-width: 54px;
+  max-width: 54px;
+}
+
+.class-record-table .class-record-summary-col {
+  width: 78px;
+  min-width: 78px;
+  max-width: 78px;
+}
+
+.class-record-table .class-record-summary-term {
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+}
+
+.class-record-table .class-record-summary-descriptor {
+  width: 86px;
+  min-width: 86px;
+  max-width: 86px;
+}
+
+.class-record-table th.class-record-summary-col {
+  white-space: normal;
+  padding-inline: 0.3rem;
+}
+
+.class-record-summary-label {
+  display: block;
+  line-height: 1.05;
+  text-align: center;
+}
+
+.class-record-table.subject-score-table .class-record-student-col {
+  min-width: 154px;
+}
+
+.class-record-table .student-score-cell {
+  min-width: 154px;
+}
+
+.class-record-table .student-score-cell strong {
+  display: block;
+  font-size: 0.7rem;
+}
+
+.class-record-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.25rem;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 0.56rem;
+  font-weight: 800;
+}
+
+.class-record-table .student-score-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.class-record-table .student-score-cell .muted-text {
+  margin-top: 0;
+  font-size: 0.58rem;
+}
+
+.class-record-table .assessment-column-header {
+  min-width: 36px;
+  justify-content: center;
+}
+
+.class-record-table input {
+  width: 40px;
+  padding: 0.16rem 0.2rem;
+  border-radius: 5px;
+  font-size: 0.66rem;
+}
+
+.class-record-table .score-entry-field {
+  grid-template-columns: minmax(34px, 40px) auto;
+  gap: 0.15rem;
+}
+
+.class-record-table .score-entry-field.is-compact {
+  grid-template-columns: 40px;
+}
+
+.class-record-table .score-entry-field.has-total {
+  grid-template-columns: minmax(34px, 40px) auto;
+}
+
+.class-record-table .score-entry-field span,
+.class-record-table .score-total-label {
+  font-size: 0.56rem;
+}
+
+.class-record-table .assessment-delete-btn {
+  font-size: 0.65rem;
+}
+
+.class-record-table .final-score-cell {
+  font-weight: 800;
+}
+
+.class-record-table .descriptor-cell {
+  min-width: 82px;
 }
 
 .subject-grid input {
@@ -1958,6 +2243,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .gradebook-sheet-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .subject-action-row {
     flex-direction: column;
     align-items: stretch;
@@ -2006,7 +2295,15 @@
     padding: 0.875rem;
   }
 
+  .gradebook-sheet-shell {
+    padding: 0.875rem;
+  }
+
   .subject-filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .gradebook-sheet-toolbar {
     grid-template-columns: 1fr;
   }
 

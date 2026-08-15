@@ -74,6 +74,19 @@
   /* Table */
   --table-head-bg: #f1f5f9;
   --table-head-text: #334155;
+  --gradebook-group-bg: #eef2f7;
+  --gradebook-group-active-bg: #dbeafe;
+  --gradebook-toggle-bg: rgba(255, 255, 255, 0.52);
+  --gradebook-toggle-hover-bg: rgba(255, 255, 255, 0.76);
+  --gradebook-toggle-active-bg: rgba(255, 255, 255, 0.96);
+  --gradebook-toggle-active-text: #0f172a;
+  --gradebook-toggle-accent: #2563eb;
+  --gradebook-toggle-ring: rgba(37, 99, 235, 0.14);
+  --gradebook-meta-bg: #e5e7eb;
+  --gradebook-meta-text: #111827;
+  --gradebook-reference-bg: #f9fafb;
+  --gradebook-reference-text: #0f172a;
+  --gradebook-active-cell-bg: rgba(219, 234, 254, 0.58);
 
   /* Status */
   --success-bg: #f0fdf4;
@@ -149,7 +162,20 @@
   --meta-badge-border: #1e3a6e;
 
   --table-head-bg: #0a1628;
-  --table-head-text: #94a3b8;
+  --table-head-text: #cbd5e1;
+  --gradebook-group-bg: #0f1d31;
+  --gradebook-group-active-bg: #122742;
+  --gradebook-toggle-bg: rgba(15, 23, 42, 0.72);
+  --gradebook-toggle-hover-bg: rgba(15, 23, 42, 0.88);
+  --gradebook-toggle-active-bg: rgba(20, 33, 56, 0.98);
+  --gradebook-toggle-active-text: #f8fafc;
+  --gradebook-toggle-accent: #60a5fa;
+  --gradebook-toggle-ring: rgba(96, 165, 250, 0.22);
+  --gradebook-meta-bg: #101b2d;
+  --gradebook-meta-text: #dbeafe;
+  --gradebook-reference-bg: #0a1526;
+  --gradebook-reference-text: #e2e8f0;
+  --gradebook-active-cell-bg: rgba(96, 165, 250, 0.18);
 
   --success-bg: #052e16;
   --success-border: #166534;
