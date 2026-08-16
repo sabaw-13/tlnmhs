@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { BookOpen, MoreHorizontal, PencilLine, Trash2, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
 import {
@@ -216,7 +217,8 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   const [confirmState, setConfirmState] = useState(null);
   const [savingAllSubjectScores, setSavingAllSubjectScores] = useState(false);
   const [selectedScoreQuarter, setSelectedScoreQuarter] = useState("q1");
-  const [expandedGradebookCategories, setExpandedGradebookCategories] = useState({});
+  const [activeSubjectMenu, setActiveSubjectMenu] = useState("");
+  const [showSubjectStudentsModal, setShowSubjectStudentsModal] = useState(false);
   const [showAttendanceReport, setShowAttendanceReport] = useState(false);
   const [showFeeModal, setShowFeeModal] = useState(false);
   const [showFeeListModal, setShowFeeListModal] = useState(false);
@@ -230,6 +232,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     notes: ""
   });
   const gradeWeights = DEFAULT_GRADE_WEIGHTS;
+  const subjectMenuRef = useRef(null);
 
   const teacherProfile = teacherUsers.find((teacher) => teacher.id === currentUser?.uid) || null;
   const handledSubjects = teacherProfile?.subjectRecords || [];
@@ -422,6 +425,18 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     setSubjectScoreDrafts({});
     navigate(location.pathname, { replace: true, state: null });
   }, [handledSubjectSignature, location.pathname, location.state, navigate, section, selectedSubjectName]);
+
+  useEffect(() => {
+    if (!activeSubjectMenu) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (subjectMenuRef.current?.contains(event.target)) return;
+      setActiveSubjectMenu("");
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [activeSubjectMenu]);
 
   useEffect(() => {
     if (!sectionClassReports.length) {
@@ -710,9 +725,19 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     setShowSubjectModal(true);
     setSaveMessage("");
   };
-  const openEditSubjectModal = () => {
-    const currentSubject = getHandledSubjectRecord(selectedSubjectName);
-    const classIds = Object.keys(getSubjectClassMap(selectedSubjectName)).filter((classId) => getSubjectClassMap(selectedSubjectName)[classId]);
+  const selectSubjectWorkspace = (subjectValue) => {
+    setSelectedSubjectName(subjectValue);
+    setSelectedSubjectClassId("");
+    setSubjectScoreDrafts({});
+  };
+  const openSubjectStudentsModal = (subjectValue) => {
+    selectSubjectWorkspace(subjectValue);
+    setActiveSubjectMenu("");
+    setShowSubjectStudentsModal(true);
+  };
+  const openEditSubjectModal = (subjectValue = selectedSubjectName) => {
+    const currentSubject = getHandledSubjectRecord(subjectValue);
+    const classIds = Object.keys(getSubjectClassMap(subjectValue)).filter((classId) => getSubjectClassMap(subjectValue)[classId]);
 
     if (!currentSubject) return;
 
@@ -724,6 +749,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     });
     setShowSubjectModal(true);
     setSaveMessage("");
+    setActiveSubjectMenu("");
   };
   const closeSubjectModal = () => {
     setShowSubjectModal(false);
@@ -1101,6 +1127,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
   };
 
   const requestDeleteSubject = (subjectName) => {
+    setActiveSubjectMenu("");
     setConfirmState({
       action: "delete-subject",
       tone: "danger",
@@ -1333,19 +1360,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     return totalValues.reduce((sum, value) => sum + value, 0);
   };
 
-  const getGradebookAccordionKey = (sectionName) => `${selectedSubjectName}::${selectedScoreQuarter}::${sectionName}`;
-
-  const getExpandedGradebookCategory = (sectionName) => (
-    expandedGradebookCategories[getGradebookAccordionKey(sectionName)] || "writtenWork"
-  );
-
-  const expandGradebookCategory = (sectionName, categoryKey) => {
-    setExpandedGradebookCategories((currentCategories) => ({
-      ...currentCategories,
-      [getGradebookAccordionKey(sectionName)]: categoryKey
-    }));
-  };
-
   const renderGradebookSheetControls = () => (
     <div className="gradebook-sheet-shell">
       <div className="gradebook-sheet-toolbar">
@@ -1390,26 +1404,10 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
           </select>
         </label>
       </div>
-      <div className="gradebook-sheet-summary">
-        <span className="meta-badge">{selectedSubjectLabel || "Select a subject"}</span>
-        <span className="meta-badge">
-          {selectedSubjectClassId
-            ? selectedSubjectClasses.find((classroom) => classroom.id === selectedSubjectClassId)?.name
-              || selectedSubjectClasses.find((classroom) => classroom.id === selectedSubjectClassId)?.section
-              || "Selected Section"
-            : "All Sections"}
-        </span>
-        <span className="meta-badge">
-          {Object.keys(subjectStudentGroups).length} table{Object.keys(subjectStudentGroups).length === 1 ? "" : "s"}
-        </span>
-      </div>
     </div>
   );
 
   const renderGradebookSection = (sectionName, sectionStudents) => {
-    const quarterLabel = QUARTER_OPTIONS.find((quarter) => quarter.key === selectedScoreQuarter)?.label || "Term";
-    const teacherDisplayName = userData?.displayName || userData?.name || userData?.email || currentUser?.email || "Teacher";
-    const expandedCategoryKey = getExpandedGradebookCategory(sectionName);
     const writtenColumns = FIXED_ASSESSMENT_COLUMNS.filter((column) => column.categoryKey === "writtenWork");
     const performanceColumns = FIXED_ASSESSMENT_COLUMNS.filter((column) => column.categoryKey === "performanceTask");
     const examColumns = FIXED_ASSESSMENT_COLUMNS.filter((column) => column.categoryKey === "finalExam");
@@ -1434,9 +1432,7 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       }
     ];
     const totalColumnCount = 1
-      + categoryConfigs.reduce((sum, category) => (
-        sum + (category.key === expandedCategoryKey ? category.columns.length + 1 : 1)
-      ), 0)
+      + categoryConfigs.reduce((sum, category) => sum + category.columns.length + 1, 0)
       + 3;
 
     return (
@@ -1445,30 +1441,20 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
           <thead>
             <tr className="class-record-group-row">
               <th rowSpan={2} className="class-record-student-col">LEARNERS&apos; NAMES</th>
-              {categoryConfigs.map((category) => {
-                const isExpanded = category.key === expandedCategoryKey;
-                const groupColumnCount = isExpanded ? category.columns.length + 1 : 1;
-
-                return (
-                  <th
-                    key={category.key}
-                    colSpan={groupColumnCount}
-                    className={`class-record-group-cell${isExpanded ? " is-active" : ""}`}
-                  >
-                    <button
-                      type="button"
-                      className={`class-record-group-toggle${isExpanded ? " is-expanded" : ""}`}
-                      onClick={() => expandGradebookCategory(sectionName, category.key)}
-                      aria-expanded={isExpanded}
-                    >
-                      <span className="class-record-group-copy">
-                        <span className="class-record-group-title">{category.label}</span>
-                        <span className="class-record-group-weight">{category.weightLabel}</span>
-                      </span>
-                    </button>
-                  </th>
-                );
-              })}
+              {categoryConfigs.map((category) => (
+                <th
+                  key={category.key}
+                  colSpan={category.columns.length + 1}
+                  className="class-record-group-cell is-active"
+                >
+                  <div className="class-record-group-toggle is-expanded is-static">
+                    <span className="class-record-group-copy">
+                      <span className="class-record-group-title">{category.label}</span>
+                      <span className="class-record-group-weight">{category.weightLabel}</span>
+                    </span>
+                  </div>
+                </th>
+              ))}
               <th rowSpan={2} className="class-record-summary-col class-record-summary-grade">
                 <span className="class-record-summary-label">Initial Grade</span>
               </th>
@@ -1480,32 +1466,24 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
               </th>
             </tr>
             <tr className="class-record-subheader-row">
-              {categoryConfigs.flatMap((category) => {
-                const isExpanded = category.key === expandedCategoryKey;
-
-                if (category.key === expandedCategoryKey) {
-                  return [
-                    ...category.columns.map((column) => (
-                      <th
-                        key={`${category.key}-${column.subcategoryKey}-${column.index}`}
-                        className={`class-record-category-head${isExpanded ? " is-active" : ""}`}
-                      >
-                        <div className="assessment-column-header">
-                          <span>{getAssessmentColumnHeaderLabel(column)}</span>
-                        </div>
-                      </th>
-                    )),
-                    <th
-                      key={`${category.key}-total`}
-                      className={`class-record-category-head class-record-category-total${isExpanded ? " is-active" : ""}`}
-                    >
-                      Total
-                    </th>
-                  ];
-                }
-
-                return [<th key={`${category.key}-total`} className="class-record-category-total">Total</th>];
-              })}
+              {categoryConfigs.flatMap((category) => ([
+                ...category.columns.map((column) => (
+                  <th
+                    key={`${category.key}-${column.subcategoryKey}-${column.index}`}
+                    className="class-record-category-head is-active"
+                  >
+                    <div className="assessment-column-header">
+                      <span>{getAssessmentColumnHeaderLabel(column)}</span>
+                    </div>
+                  </th>
+                )),
+                <th
+                  key={`${category.key}-total`}
+                  className="class-record-category-head class-record-category-total is-active"
+                >
+                  Total
+                </th>
+              ]))}
             </tr>
           </thead>
           <tbody>
@@ -1514,42 +1492,34 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
               {categoryConfigs.flatMap((category) => {
                 const categoryPossibleTotal = getPossibleTotalForColumns(subjectStudents, selectedScoreQuarter, category.columns);
 
-                if (category.key === expandedCategoryKey) {
-                  return [
-                    ...category.columns.map((column) => (
-                      <td
-                        key={`possible-${category.key}-${column.subcategoryKey}-${column.index}`}
-                        data-label={getAssessmentColumnHeaderLabel(column)}
-                        className="class-record-category-cell is-active"
-                      >
-                        <input
-                          type="number"
-                          value={parseScoreParts(
-                            buildScoreEntryValue(
-                              "",
-                              getAssessmentColumnPossibleTotal(subjectStudents, selectedScoreQuarter, column) ?? ""
-                            )
-                          ).total}
-                          onChange={(event) => updateAssessmentPossibleTotalDraft(
-                            column.categoryKey,
-                            column.subcategoryKey,
-                            column.index,
-                            event.target.value,
-                            selectedScoreQuarter
-                          )}
-                          placeholder="0"
-                          className="possible-score-input"
-                        />
-                      </td>
-                    )),
-                    <td key={`possible-total-${category.key}`} data-label="Total" className="class-record-category-cell is-active">
-                      {formatGradeSheetValue(categoryPossibleTotal, { decimals: 0, blank: "" })}
-                    </td>
-                  ];
-                }
-
                 return [
-                  <td key={`possible-total-${category.key}`} data-label="Total">
+                  ...category.columns.map((column) => (
+                    <td
+                      key={`possible-${category.key}-${column.subcategoryKey}-${column.index}`}
+                      data-label={getAssessmentColumnHeaderLabel(column)}
+                      className="class-record-category-cell is-active"
+                    >
+                      <input
+                        type="number"
+                        value={parseScoreParts(
+                          buildScoreEntryValue(
+                            "",
+                            getAssessmentColumnPossibleTotal(subjectStudents, selectedScoreQuarter, column) ?? ""
+                          )
+                        ).total}
+                        onChange={(event) => updateAssessmentPossibleTotalDraft(
+                          column.categoryKey,
+                          column.subcategoryKey,
+                          column.index,
+                          event.target.value,
+                          selectedScoreQuarter
+                        )}
+                        placeholder="0"
+                        className="possible-score-input"
+                      />
+                    </td>
+                  )),
+                  <td key={`possible-total-${category.key}`} data-label="Total" className="class-record-category-cell is-active">
                     {formatGradeSheetValue(categoryPossibleTotal, { decimals: 0, blank: "" })}
                   </td>
                 ];
@@ -1575,49 +1545,38 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                   {categoryConfigs.flatMap((category) => {
                     const categorySummary = getCategorySummary(draft, selectedScoreQuarter, category.key);
 
-                    if (category.key === expandedCategoryKey) {
-                      return [
-                        ...category.columns.map((column) => {
-                          const scoreParts = parseScoreParts(getAssessmentColumnEntry(draft, selectedScoreQuarter, column));
-                          const hasTotalPoints = Boolean(String(scoreParts.total || "").trim());
-
-                          return (
-                            <td
-                              key={`${student.id}-${column.categoryKey}-${column.subcategoryKey}-${column.index}`}
-                              data-label={column.shortLabel}
-                              className="class-record-category-cell is-active"
-                            >
-                              <div className={`score-entry-field${hasTotalPoints ? " has-total" : " is-compact"}`}>
-                                <input
-                                  type="number"
-                                  value={scoreParts.score}
-                                  onChange={(event) => updateSubjectScoreEntryDraft(
-                                    student.id,
-                                    column.categoryKey,
-                                    column.subcategoryKey,
-                                    event.target.value,
-                                    column.index,
-                                    "score",
-                                    selectedScoreQuarter
-                                  )}
-                                  placeholder="0"
-                                />
-                                {hasTotalPoints && <span className="score-total-label">/ {scoreParts.total}</span>}
-                              </div>
-                            </td>
-                          );
-                        }),
-                        <td key={`${student.id}-${category.key}-total`} data-label="Total" className="class-record-category-cell is-active">
-                          {formatGradeSheetValue(categorySummary.total, {
-                            decimals: categorySummary.possibleTotal ? 0 : 2,
-                            blank: ""
-                          })}
-                        </td>
-                      ];
-                    }
-
                     return [
-                      <td key={`${student.id}-${category.key}-total`} data-label="Total">
+                      ...category.columns.map((column) => {
+                        const scoreParts = parseScoreParts(getAssessmentColumnEntry(draft, selectedScoreQuarter, column));
+                        const hasTotalPoints = Boolean(String(scoreParts.total || "").trim());
+
+                        return (
+                          <td
+                            key={`${student.id}-${column.categoryKey}-${column.subcategoryKey}-${column.index}`}
+                            data-label={column.shortLabel}
+                            className="class-record-category-cell is-active"
+                          >
+                            <div className={`score-entry-field${hasTotalPoints ? " has-total" : " is-compact"}`}>
+                              <input
+                                type="number"
+                                value={scoreParts.score}
+                                onChange={(event) => updateSubjectScoreEntryDraft(
+                                  student.id,
+                                  column.categoryKey,
+                                  column.subcategoryKey,
+                                  event.target.value,
+                                  column.index,
+                                  "score",
+                                  selectedScoreQuarter
+                                )}
+                                placeholder="0"
+                              />
+                              {hasTotalPoints && <span className="score-total-label">/ {scoreParts.total}</span>}
+                            </div>
+                          </td>
+                        );
+                      }),
+                      <td key={`${student.id}-${category.key}-total`} data-label="Total" className="class-record-category-cell is-active">
                         {formatGradeSheetValue(categorySummary.total, {
                           decimals: categorySummary.possibleTotal ? 0 : 2,
                           blank: ""
@@ -1849,73 +1808,89 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
     <>
       {handledSubjects.length > 0 ? (
         <div className="panel">
-          <div className="subject-workspace-shell">
-            {renderSubjectSelectorControls()}
+          <div className="subject-manager-grid">
+            {handledSubjectSummaries.map((item) => {
+              const isSelected = selectedSubjectName === item.subjectValue;
 
-            <div className="subject-action-row">
-              {selectedSubjectName && (
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={openEditSubjectModal}
+              return (
+                <article
+                  key={item.subjectValue}
+                  className={`subject-manager-card${isSelected ? " is-selected" : ""}`}
                 >
-                  Edit Sections
-                </button>
-              )}
-              {selectedSubjectName && (
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={() => navigate("/dashboard/gradebook", { state: { selectedSubjectName } })}
-                >
-                  Open Grade Input
-                </button>
-              )}
-              {selectedSubjectName && (
-                <button
-                  type="button"
-                  className="text-btn"
-                  disabled={savingTeacherId === currentUser?.uid}
-                  onClick={() => requestDeleteSubject(selectedSubjectName)}
-                >
-                  Delete Subject
-                </button>
-              )}
-            </div>
+                  <button
+                    type="button"
+                    className="subject-manager-card-main"
+                    onClick={() => openSubjectStudentsModal(item.subjectValue)}
+                  >
+                    <span className="subject-manager-accent" style={{ backgroundColor: item.color }} />
+                    <div className="subject-manager-copy">
+                      <div className="subject-manager-heading">
+                        <strong>{item.subjectLabel}</strong>
+                      </div>
+                      <div className="subject-manager-summary">
+                        <p>
+                          {item.studentCount} student{item.studentCount === 1 ? "" : "s"}
+                          {" | "}
+                          Avg. grade {item.averageGrade ?? "N/A"}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                  <div className="subject-manager-menu-shell" ref={activeSubjectMenu === item.subjectValue ? subjectMenuRef : null}>
+                    <button
+                      type="button"
+                      className="subject-manager-menu-trigger"
+                      aria-label={`Open actions for ${item.subjectLabel}`}
+                      aria-expanded={activeSubjectMenu === item.subjectValue}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActiveSubjectMenu((currentMenu) => (currentMenu === item.subjectValue ? "" : item.subjectValue));
+                      }}
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                    {activeSubjectMenu === item.subjectValue && (
+                      <div className="subject-manager-menu">
+                        <button
+                          type="button"
+                          className="subject-manager-menu-item"
+                          onClick={() => {
+                            selectSubjectWorkspace(item.subjectValue);
+                            openEditSubjectModal(item.subjectValue);
+                          }}
+                        >
+                          <PencilLine size={16} />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="subject-manager-menu-item"
+                          onClick={() => {
+                            selectSubjectWorkspace(item.subjectValue);
+                            setActiveSubjectMenu("");
+                            navigate("/dashboard/gradebook", { state: { selectedSubjectName: item.subjectValue } });
+                          }}
+                        >
+                          <BookOpen size={16} />
+                          <span>Grades</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="subject-manager-menu-item danger"
+                          disabled={savingTeacherId === currentUser?.uid}
+                          onClick={() => requestDeleteSubject(item.subjectValue)}
+                        >
+                          <Trash2 size={16} />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
 
-          {selectedSubjectName ? (
-            <div className="subject-section-panel">
-              <div className="panel-header">
-                <h4>{selectedSubjectLabel}</h4>
-                <span className="meta-badge">{selectedSubjectClasses.length} section{selectedSubjectClasses.length === 1 ? "" : "s"}</span>
-              </div>
-              {selectedSubjectClasses.length ? (
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Section</th>
-                      <th>Grade Level</th>
-                      <th>Students</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedSubjectClasses.map((classroom) => (
-                      <tr key={classroom.id}>
-                        <td data-label="Section">{classroom.name || classroom.section || classroom.id}</td>
-                        <td data-label="Grade Level">{classroom.gradeLevel || "N/A"}</td>
-                        <td data-label="Students">{classroom.students?.length ?? 0}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="empty-copy">Assign one or more sections to this subject to begin using it.</p>
-              )}
-            </div>
-          ) : (
-            <p className="empty-copy">Select a handled subject to manage its assigned sections.</p>
-          )}
         </div>
       ) : (
         <div className="panel">
@@ -1954,16 +1929,6 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
                     {savingAllSubjectScores ? "Saving..." : "Save Scores"}
                   </button>
                 </>
-              )}
-              {selectedSubjectName && (
-                <button
-                  type="button"
-                  className="text-btn"
-                  disabled={savingTeacherId === currentUser?.uid}
-                  onClick={() => requestDeleteSubject(selectedSubjectName)}
-                >
-                  Delete Subject
-                </button>
               )}
             </div>
           </div>
@@ -2565,6 +2530,62 @@ const TeacherView = ({ section = "overview", setHeaderActions = noopHeaderAction
       )}
 
       {addingStudentToClass && renderAddExistingStudentModal()}
+
+      {showSubjectStudentsModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <h3>{selectedSubjectLabel || "Selected Subject"} Students</h3>
+              <div className="inline-actions">
+                <span className="meta-badge">{subjectStudents.length} student{subjectStudents.length === 1 ? "" : "s"}</span>
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  aria-label="Close subject students"
+                  onClick={() => setShowSubjectStudentsModal(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {subjectStudents.length ? (
+              <table className="data-table student-records-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Student Number</th>
+                    <th>Section</th>
+                    <th>Overall Average</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subjectStudents.map((student) => (
+                    <tr key={student.id}>
+                      <td data-label="Name">{getStudentDisplayName(student)}</td>
+                      <td data-label="Student Number">{student.studentNumber || "N/A"}</td>
+                      <td data-label="Section">{student.className || "N/A"}</td>
+                      <td data-label="Overall Average">{student.gpa ?? "N/A"}</td>
+                      <td data-label="Status">
+                        <span className={`status-pill ${getStatusClassName(student.performanceStatus || "Not Marked")}`}>
+                          {student.performanceStatus || "Not Marked"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="empty-copy">
+                {selectedSubjectClasses.length
+                  ? "No students are enrolled in this subject yet."
+                  : "Assign one or more sections to this subject to see its students."}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {showFeeListModal && (
         <div className="modal-overlay">

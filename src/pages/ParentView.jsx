@@ -97,7 +97,6 @@ const ParentView = ({ section = "overview" }) => {
   const [cancellingRequestId, setCancellingRequestId] = useState("");
   const [attendanceSubjectFilter, setAttendanceSubjectFilter] = useState("");
   const [attendancePage, setAttendancePage] = useState(1);
-  const [quarterBreakdownModal, setQuarterBreakdownModal] = useState(null);
   const isDashboardSection = section === "dashboard" || section === "overview";
   const shouldShowAccessRequestPanel = section === "requests" || (isDashboardSection && !linkedStudents.length);
 
@@ -173,6 +172,24 @@ const ParentView = ({ section = "overview" }) => {
   const filteredAttendanceRows = attendanceSubjectFilter
     ? attendanceReportRows.filter((row) => row.subject === attendanceSubjectFilter)
     : attendanceReportRows;
+  const reportTableRows = visibleSubjects.flatMap((subject) => QUARTER_OPTIONS.map((quarter) => {
+    const scores = getQuarterScoreBreakdown(subject, quarter.key);
+
+    return {
+      id: `${subject.id}-${quarter.key}`,
+      subjectName: subject.name,
+      teacherName: subject.teacher || "Teacher not assigned",
+      quarterLabel: quarter.label,
+      quarterGrade: subject?.[quarter.key] ?? "N/A",
+      quizzes: formatScoreListForDisplay(scores.quizzes),
+      longTests: formatScoreListForDisplay(scores.longTests),
+      activities: formatScoreListForDisplay(scores.activities),
+      projects: formatScoreListForDisplay(scores.projects),
+      exams: formatScoreListForDisplay(scores.exams),
+      finalGrade: subject.finalGrade ?? "N/A",
+      attendanceLabel: subject.attendanceLabel || "N/A"
+    };
+  }));
   const countedAttendanceRows = filteredAttendanceRows.filter((row) => row.status !== "No Class");
   const attendanceSummary = {
     classDays: countedAttendanceRows.length,
@@ -188,21 +205,10 @@ const ParentView = ({ section = "overview" }) => {
   const pendingAccessRequests = parentStudentAccessRequests.filter((request) => (
     request.parentId === currentUser?.uid && request.status === "pending"
   ));
-  const openQuarterBreakdownModal = (subject, quarter) => {
-    setQuarterBreakdownModal({
-      studentName: linkedStudent?.name || "Student",
-      subjectName: subject.name,
-      teacherName: subject.teacher,
-      quarterLabel: quarter.label,
-      quarterGrade: subject?.[quarter.key] ?? "N/A",
-      scores: getQuarterScoreBreakdown(subject, quarter.key)
-    });
-  };
 
   useEffect(() => {
     setAttendanceSubjectFilter("");
     setAttendancePage(1);
-    setQuarterBreakdownModal(null);
   }, [linkedStudent?.id]);
 
   useEffect(() => {
@@ -429,36 +435,36 @@ const ParentView = ({ section = "overview" }) => {
               <tr>
                 <th>Subject</th>
                 <th>Teacher</th>
-                {QUARTER_OPTIONS.map((quarter) => (
-                  <th key={quarter.key}>{quarter.label}</th>
-                ))}
+                <th>Term</th>
+                <th>Grade</th>
+                <th>Quizzes</th>
+                <th>Long Tests</th>
+                <th>Activities</th>
+                <th>Projects</th>
+                <th>Exams</th>
                 <th>Final Grade</th>
                 <th>Attendance</th>
               </tr>
             </thead>
             <tbody>
-              {visibleSubjects.map((subject) => (
-                <tr key={subject.id}>
-                  <td data-label="Subject">{subject.name}</td>
-                  <td data-label="Teacher">{subject.teacher}</td>
-                  {QUARTER_OPTIONS.map((quarter) => (
-                    <td key={quarter.key} data-label={quarter.label}>
-                      <button
-                        type="button"
-                        className="quarter-grade-trigger"
-                        onClick={() => openQuarterBreakdownModal(subject, quarter)}
-                      >
-                        {subject[quarter.key] ?? "N/A"}
-                      </button>
-                    </td>
-                  ))}
-                  <td data-label="Final Grade">{subject.finalGrade ?? "N/A"}</td>
-                  <td data-label="Attendance">{subject.attendanceLabel || "N/A"}</td>
+              {reportTableRows.map((row) => (
+                <tr key={row.id}>
+                  <td data-label="Subject">{row.subjectName}</td>
+                  <td data-label="Teacher">{row.teacherName}</td>
+                  <td data-label="Term">{row.quarterLabel}</td>
+                  <td data-label="Grade">{row.quarterGrade}</td>
+                  <td data-label="Quizzes">{row.quizzes}</td>
+                  <td data-label="Long Tests">{row.longTests}</td>
+                  <td data-label="Activities">{row.activities}</td>
+                  <td data-label="Projects">{row.projects}</td>
+                  <td data-label="Exams">{row.exams}</td>
+                  <td data-label="Final Grade">{row.finalGrade}</td>
+                  <td data-label="Attendance">{row.attendanceLabel}</td>
                 </tr>
               ))}
-              {visibleSubjects.length === 0 && (
+              {reportTableRows.length === 0 && (
                 <tr>
-                  <td colSpan={QUARTER_OPTIONS.length + 4}>No grade records available yet.</td>
+                  <td colSpan="11">No grade records available yet.</td>
                 </tr>
               )}
             </tbody>
@@ -546,59 +552,6 @@ const ParentView = ({ section = "overview" }) => {
               )}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {quarterBreakdownModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="panel-header">
-              <div>
-                <h3>{quarterBreakdownModal.quarterLabel} Score Breakdown</h3>
-                <p className="muted-text">
-                  {quarterBreakdownModal.studentName} - {quarterBreakdownModal.subjectName} - {quarterBreakdownModal.teacherName || "Teacher"}
-                </p>
-              </div>
-              <span className="meta-badge">Grade {quarterBreakdownModal.quarterGrade}</span>
-            </div>
-
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Category</th>
-                  <th>Scores</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td data-label="Category">Quizzes</td>
-                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.quizzes)}</td>
-                </tr>
-                <tr>
-                  <td data-label="Category">Long Tests</td>
-                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.longTests)}</td>
-                </tr>
-                <tr>
-                  <td data-label="Category">Activities</td>
-                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.activities)}</td>
-                </tr>
-                <tr>
-                  <td data-label="Category">Projects</td>
-                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.projects)}</td>
-                </tr>
-                <tr>
-                  <td data-label="Category">Exams</td>
-                  <td data-label="Scores">{formatScoreListForDisplay(quarterBreakdownModal.scores.exams)}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div className="modal-actions">
-              <button type="button" className="secondary-btn" onClick={() => setQuarterBreakdownModal(null)}>
-                Close
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
