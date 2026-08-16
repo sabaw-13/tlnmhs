@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useSchoolData } from "../context/SchoolDataContext";
-import { normalizeStoredScoreEntry, TERM_OPTIONS as QUARTER_OPTIONS } from "../utils/reporting";
+import SubjectGradebookModal from "../components/SubjectGradebookModal";
 import {
   formatSubjectAttendanceAverage,
   getCurrentStudentSubjects,
@@ -50,29 +50,13 @@ const formatCurrency = (value) => {
     maximumFractionDigits: 2
   }).format(amount);
 };
-const normalizeOptionalScoreArray = (value) => {
-  if (value === null || value === undefined || value === "") return [];
-  if (Array.isArray(value)) return value.map((score) => normalizeStoredScoreEntry(score));
-  return [normalizeStoredScoreEntry(value)];
-};
-const getQuarterScoreBreakdown = (subject, quarterKey) => {
-  const quarter = subject?.quarters?.[quarterKey] || {};
-
-  return {
-    quizzes: normalizeOptionalScoreArray(quarter.writtenWork?.quizzes ?? quarter.quizzes),
-    longTests: normalizeOptionalScoreArray(quarter.writtenWork?.longTests),
-    activities: normalizeOptionalScoreArray(quarter.performanceTask?.activities ?? quarter.activities),
-    projects: normalizeOptionalScoreArray(quarter.performanceTask?.projects),
-    exams: normalizeOptionalScoreArray(quarter.finalExam?.exams ?? quarter.exams)
-  };
-};
-const formatScoreListForDisplay = (values = []) => {
-  const normalizedValues = values
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-
-  return normalizedValues.length ? normalizedValues.join(", ") : "N/A";
-};
+const getSubjectSnapshotGrade = (subject) => (
+  subject.finalGrade
+  ?? subject.q3
+  ?? subject.q2
+  ?? subject.q1
+  ?? "N/A"
+);
 
 const ParentView = ({ section = "overview" }) => {
   const { currentUser } = useAuth();
@@ -95,6 +79,7 @@ const ParentView = ({ section = "overview" }) => {
   const [accessFeedback, setAccessFeedback] = useState(null);
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [cancellingRequestId, setCancellingRequestId] = useState("");
+  const [selectedGradeSubject, setSelectedGradeSubject] = useState(null);
   const [attendanceSubjectFilter, setAttendanceSubjectFilter] = useState("");
   const [attendancePage, setAttendancePage] = useState(1);
   const isDashboardSection = section === "dashboard" || section === "overview";
@@ -172,24 +157,6 @@ const ParentView = ({ section = "overview" }) => {
   const filteredAttendanceRows = attendanceSubjectFilter
     ? attendanceReportRows.filter((row) => row.subject === attendanceSubjectFilter)
     : attendanceReportRows;
-  const reportTableRows = visibleSubjects.flatMap((subject) => QUARTER_OPTIONS.map((quarter) => {
-    const scores = getQuarterScoreBreakdown(subject, quarter.key);
-
-    return {
-      id: `${subject.id}-${quarter.key}`,
-      subjectName: subject.name,
-      teacherName: subject.teacher || "Teacher not assigned",
-      quarterLabel: quarter.label,
-      quarterGrade: subject?.[quarter.key] ?? "N/A",
-      quizzes: formatScoreListForDisplay(scores.quizzes),
-      longTests: formatScoreListForDisplay(scores.longTests),
-      activities: formatScoreListForDisplay(scores.activities),
-      projects: formatScoreListForDisplay(scores.projects),
-      exams: formatScoreListForDisplay(scores.exams),
-      finalGrade: subject.finalGrade ?? "N/A",
-      attendanceLabel: subject.attendanceLabel || "N/A"
-    };
-  }));
   const countedAttendanceRows = filteredAttendanceRows.filter((row) => row.status !== "No Class");
   const attendanceSummary = {
     classDays: countedAttendanceRows.length,
@@ -207,6 +174,7 @@ const ParentView = ({ section = "overview" }) => {
   ));
 
   useEffect(() => {
+    setSelectedGradeSubject(null);
     setAttendanceSubjectFilter("");
     setAttendancePage(1);
   }, [linkedStudent?.id]);
@@ -430,45 +398,36 @@ const ParentView = ({ section = "overview" }) => {
       {section === "report" && (
         <div className="panel">
           <h3>Child Academic Report</h3>
-          <table className="data-table child-report-table">
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th>Teacher</th>
-                <th>Term</th>
-                <th>Grade</th>
-                <th>Quizzes</th>
-                <th>Long Tests</th>
-                <th>Activities</th>
-                <th>Projects</th>
-                <th>Exams</th>
-                <th>Final Grade</th>
-                <th>Attendance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reportTableRows.map((row) => (
-                <tr key={row.id}>
-                  <td data-label="Subject">{row.subjectName}</td>
-                  <td data-label="Teacher">{row.teacherName}</td>
-                  <td data-label="Term">{row.quarterLabel}</td>
-                  <td data-label="Grade">{row.quarterGrade}</td>
-                  <td data-label="Quizzes">{row.quizzes}</td>
-                  <td data-label="Long Tests">{row.longTests}</td>
-                  <td data-label="Activities">{row.activities}</td>
-                  <td data-label="Projects">{row.projects}</td>
-                  <td data-label="Exams">{row.exams}</td>
-                  <td data-label="Final Grade">{row.finalGrade}</td>
-                  <td data-label="Attendance">{row.attendanceLabel}</td>
-                </tr>
+          {visibleSubjects.length ? (
+            <div className="handled-subject-list">
+              {visibleSubjects.map((subject, index) => (
+                <button
+                  key={subject.id}
+                  type="button"
+                  className="handled-subject-item handled-subject-item-detailed"
+                  onClick={() => setSelectedGradeSubject(subject)}
+                >
+                  <span
+                    className="handled-subject-accent"
+                    style={{ backgroundColor: SUBJECT_PANEL_COLORS[index % SUBJECT_PANEL_COLORS.length] }}
+                  />
+                  <div className="handled-subject-copy">
+                    <div className="handled-subject-head">
+                      <strong>{subject.name}</strong>
+                      <span className="handled-subject-grade-badge">{getSubjectSnapshotGrade(subject)}</span>
+                    </div>
+                    <p className="handled-subject-teacher">{subject.teacher || "Teacher not assigned"}</p>
+                    <div className="handled-subject-footer">
+                      <span className="handled-subject-label">Final Grade</span>
+                      <span className="handled-subject-action">View full table</span>
+                    </div>
+                  </div>
+                </button>
               ))}
-              {reportTableRows.length === 0 && (
-                <tr>
-                  <td colSpan="11">No grade records available yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            </div>
+          ) : (
+            <p className="empty-copy">No grade records available yet.</p>
+          )}
         </div>
       )}
 
@@ -599,6 +558,15 @@ const ParentView = ({ section = "overview" }) => {
             </tbody>
           </table>
         </div>
+      )}
+
+      {selectedGradeSubject && (
+        <SubjectGradebookModal
+          subject={selectedGradeSubject}
+          learnerName={linkedStudent?.name || linkedStudent?.displayName || "Student"}
+          learnerSubcopy={linkedStudent?.studentNumber || linkedStudent?.email || ""}
+          onClose={() => setSelectedGradeSubject(null)}
+        />
       )}
 
     </div>
